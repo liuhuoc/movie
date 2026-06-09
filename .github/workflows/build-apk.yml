@@ -1,15 +1,38 @@
-name: Build APK
+name: Build Android APK
 
 on:
   push:
     branches: [main, master]
+    paths:
+      - 'web/**'
+      - '.github/workflows/build-apk.yml'
   pull_request:
     branches: [main, master]
+    paths:
+      - 'web/**'
+      - '.github/workflows/build-apk.yml'
   workflow_dispatch:
+    inputs:
+      build_type:
+        description: '构建类型'
+        required: false
+        default: 'both'
+        type: choice
+        options:
+          - both
+          - debug
+          - release
+
+env:
+  NODE_VERSION: '20'
+  JAVA_VERSION: '17'
 
 jobs:
   build-apk:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -17,12 +40,14 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
 
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
+          java-version: ${{ env.JAVA_VERSION }}
           distribution: 'temurin'
 
       - name: Setup Android SDK
@@ -34,11 +59,11 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          key: ${{ runner.os }}-gradle-${{ hashFiles('web/android/**/*.gradle*', 'web/android/**/gradle-wrapper.properties') }}
           restore-keys: |
             ${{ runner.os }}-gradle-
 
-      - name: Install dependencies
+      - name: Install web dependencies
         working-directory: ./web
         run: npm ci
 
@@ -46,26 +71,75 @@ jobs:
         working-directory: ./web
         run: npm run build
 
-      - name: Sync Capacitor
+      - name: Sync Capacitor Android
         working-directory: ./web
         run: npx cap sync android
 
       - name: Build Debug APK
+        if: github.event.inputs.build_type != 'release'
         working-directory: ./web/android
-        run: ./gradlew assembleDebug
+        run: chmod +x gradlew && ./gradlew assembleDebug
 
-      - name: Upload APK
+      - name: Upload Debug APK
+        if: github.event.inputs.build_type != 'release'
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug
+          name: movie-app-debug-${{ github.sha }}
           path: ./web/android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
 
-      - name: Build Release APK
+      - name: Build Release APK (signed with debug key)
+        if: github.event.inputs.build_type != 'debug'
         working-directory: ./web/android
-        run: ./gradlew assembleRelease
+        run: chmod +x gradlew && ./gradlew assembleRelease
 
       - name: Upload Release APK
+        if: github.event.inputs.build_type != 'debug'
         uses: actions/upload-artifact@v4
         with:
-          name: app-release
-          path: ./web/android/app/build/outputs/apk/release/app-release-unsigned.apk
+          name: movie-app-release-${{ github.sha }}
+          path: ./web/android/app/build/outputs/apk/release/app-release.apk
+          retention-days: 90
+
+      # 自动创建 GitHub Release（仅在 push 到 main 分支时）
+      - name: Generate version tag
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        id: version
+        run: |
+          VERSION="v1.1.0-$(date +'%Y%m%d')-$(echo ${{ github.sha }} | cut -c1-7)"
+          echo "tag=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "影视聚合 ${{ steps.version.outputs.tag }}"
+          body: |
+            ## 影视聚合 Android APK
+
+            ### 功能特性
+            - 聚合 40+ CMS 影视源，统一搜索播放
+            - HLS 流媒体播放，支持多源切换
+            - 自动广告检测与跳过
+            - 观看历史、收藏、缓存管理
+            - 可配置远程服务器地址
+
+            ### 安装说明
+            1. 下载 `movie-app-release-*.apk`
+            2. 在 Android 设置中允许"安装未知来源应用"
+            3. 打开 APK 文件安装
+
+            ### 使用说明
+            1. 首次打开后进入"设置"页面
+            2. 配置后端服务器地址（如 `http://your-server:3000`）
+            3. 点击"检测连接"确认连通
+            4. 返回首页即可使用
+
+            > 构建提交: ${{ github.sha }}
+          files: |
+            ./web/android/app/build/outputs/apk/release/app-release.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

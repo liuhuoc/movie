@@ -5,7 +5,8 @@
   "bundledWebRuntime": false,
   "server": {
     "androidScheme": "https",
-    "cleartext": true
+    "cleartext": true,
+    "allowNavigation": ["*"]
   },
   "android": {
     "buildOptions": {
@@ -20,9 +21,15 @@
     "SplashScreen": {
       "launchShowDuration": 2000,
       "launchAutoHide": true,
-      "backgroundColor": "#f8f9fc",
+      "backgroundColor": "#4f6ef7",
       "androidSplashResourceName": "splash",
-      "androidScaleType": "CENTER_CROP"
+      "androidScaleType": "CENTER_CROP",
+      "showSpinner": true,
+      "spinnerColor": "#ffffff"
+    },
+    "StatusBar": {
+      "style": "DARK",
+      "backgroundColor": "#4f6ef7"
     }
   }
 }

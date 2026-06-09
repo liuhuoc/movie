@@ -133,18 +133,40 @@ pip install -r requirements.txt
 python run_spider.py douban --type movie --pages 5
 ```
 
-### 方式三：打包 APK
+### 方式三：打包 Android APK
 
 ```bash
 cd web
 npm install
-npm run build
-npx cap sync android
+npm run build:android      # 构建 web + 同步到 Android 工程
 cd android
-./gradlew assembleDebug    # debug 包
-./gradlew assembleRelease   # release 包
+./gradlew assembleDebug    # debug 包（开发调试用）
+./gradlew assembleRelease   # release 包（分发用）
 # APK 输出: android/app/build/outputs/apk/
 ```
+
+### 方式四：GitHub Actions 自动构建
+
+推送代码到 `main` 分支后，GitHub Actions 会自动构建 APK 并创建 Release：
+
+1. 进入仓库 **Actions** 页面
+2. 选择 **Build Android APK** 工作流
+3. 点击 **Run workflow** 可手动触发，或等待 push 自动触发
+4. 构建完成后在 **Releases** 页面下载 APK
+
+也可通过 `workflow_dispatch` 选择仅构建 debug 或 release：
+- **both**（默认）：同时构建 debug + release
+- **debug**：仅构建 debug APK
+- **release**：仅构建 release APK
+
+#### Android 独立使用
+
+APK 安装后首次打开需要配置后端服务器地址：
+
+1. 打开 APP → 进入 **设置** 页面
+2. 在 **服务器设置** 中输入后端地址（如 `http://192.168.1.100:3000`）
+3. 点击 **检测连接** 确认连通
+4. 返回首页即可正常使用
 
 ## 页面路由
 

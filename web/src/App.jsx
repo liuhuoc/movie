@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { BrowserRouter, Routes, Route, Link, useNavigate, useParams, useSearchParams, useLocation } from 'react-router-dom'
+import { HashRouter, Routes, Route, Link, useNavigate, useParams, useSearchParams, useLocation } from 'react-router-dom'
 import Hls from 'hls.js'
 
 // ===== API =====
-const API = '/api'
+// 从 localStorage 读取可配置的 API 基地址，默认为空字符串（相对路径，用于开发模式）
+const API = localStorage.getItem('apiBaseUrl') || ''
 
 async function fetchJSON(url) {
   const res = await fetch(url)
@@ -1287,6 +1288,7 @@ function SettingsPage() {
   const [loading, setLoading] = useState(true)
   const [newSource, setNewSource] = useState({ name: '', baseUrl: '', type: 'apple_cms' })
   const [saving, setSaving] = useState(false)
+  const [serverStatus, setServerStatus] = useState('idle') // 'idle' | 'checking' | 'connected' | 'disconnected'
 
   useEffect(() => {
     loadSettings()
@@ -1445,6 +1447,73 @@ function SettingsPage() {
           </div>
         </div>
 
+        {/* 服务器设置 */}
+        <div style={{ marginBottom: 32 }}>
+          <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: 16 }}>服务器设置</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ padding: '14px', background: 'var(--bg-secondary)', borderRadius: 'var(--radius)', border: '1px solid var(--border-light)' }}>
+              <div style={{ fontSize: '14px', marginBottom: 8, color: 'var(--text-muted)' }}>服务器地址</div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  type="text"
+                  placeholder="例如：http://192.168.1.100:3000"
+                  value={localStorage.getItem('apiBaseUrl') || ''}
+                  onChange={e => {
+                    const val = e.target.value.trim()
+                    if (val) {
+                      localStorage.setItem('apiBaseUrl', val)
+                    } else {
+                      localStorage.removeItem('apiBaseUrl')
+                    }
+                    // 触发重新渲染以更新 API 地址
+                    window.location.reload()
+                  }}
+                  style={{
+                    flex: 1, padding: '8px 12px', fontSize: '13px',
+                    borderRadius: 'var(--radius-md)', border: '1px solid var(--border)',
+                    background: 'var(--bg-primary)', color: 'var(--text-primary)'
+                  }}
+                />
+                <button
+                  onClick={async () => {
+                    const baseUrl = localStorage.getItem('apiBaseUrl') || ''
+                    const healthUrl = baseUrl ? `${baseUrl}/api/health` : '/api/health'
+                    setServerStatus('checking')
+                    try {
+                      const res = await fetch(healthUrl, { signal: AbortSignal.timeout(5000) })
+                      if (res.ok) {
+                        setServerStatus('connected')
+                      } else {
+                        setServerStatus('disconnected')
+                      }
+                    } catch {
+                      setServerStatus('disconnected')
+                    }
+                  }}
+                  className="btn-secondary"
+                  style={{ padding: '8px 16px', fontSize: '13px', whiteSpace: 'nowrap' }}
+                >
+                  检测连接
+                </button>
+              </div>
+              <div style={{ marginTop: 8, fontSize: '13px' }}>
+                {serverStatus === 'connected' && (
+                  <span style={{ color: 'var(--success)' }}>已连接 - 服务器正常</span>
+                )}
+                {serverStatus === 'disconnected' && (
+                  <span style={{ color: 'var(--danger)' }}>未连接 - 无法访问服务器</span>
+                )}
+                {serverStatus === 'checking' && (
+                  <span style={{ color: 'var(--brand)' }}>检测中...</span>
+                )}
+                {serverStatus === 'idle' && (
+                  <span style={{ color: 'var(--text-dim)' }}>点击"检测连接"测试服务器是否可达</span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* 关于 */}
         <div style={{ marginBottom: 32 }}>
           <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: 16 }}>关于</h3>
@@ -1470,7 +1539,7 @@ function SettingsPage() {
 // ===== App =====
 function App() {
   return (
-    <BrowserRouter>
+    <HashRouter>
       <div className="app">
         <Header />
         <Routes>
@@ -1483,7 +1552,7 @@ function App() {
           <Route path="/play/aggregate" element={<PlayerPage />} />
         </Routes>
       </div>
-    </BrowserRouter>
+    </HashRouter>
   )
 }
 
