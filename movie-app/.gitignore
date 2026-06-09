@@ -1,0 +1,60 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+*.apk
+*.aab
+
+# Flutter/Dart
+client/.dart_tool/
+client/.packages
+client/.pub-cache/
+client/.pub/
+client/build/
+client/ios/
+client/android/
+client/**/*.lock
+
+# Python
+spider/__pycache__/
+spider/**/__pycache__/
+spider/*.pyc
+spider/**/*.pyc
+spider/.scrapy/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Runtime data
+backend/data/cache/
+backend/data/precache/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Capacitor
+web/android/app/build/
+web/android/.gradle/
+web/android/local.properties
+
+# Release (generated artifacts)
+release/android/
+release/web-dist/
