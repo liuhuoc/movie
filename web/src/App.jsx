@@ -1,15 +1,133 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { HashRouter, Routes, Route, Link, useNavigate, useParams, useSearchParams, useLocation } from 'react-router-dom'
 import Hls from 'hls.js'
+import { aggregateSearch as localSearch, getHotRecommendations as localHot, getCmsSources, saveCmsSources, DEFAULT_CMS_SOURCES } from './services/cmsEngine'
+import { getHistory, saveHistory, deleteHistory, clearHistory, getFavorites, addFavorite, removeFavorite, isFavorite, getDanmaku, addDanmaku, getPlaySettings, savePlaySettings, getRunMode, setRunMode } from './services/localStore'
 
 // ===== API =====
-// 从 localStorage 读取可配置的 API 基地址，默认为空字符串（相对路径，用于开发模式）
-const API = localStorage.getItem('apiBaseUrl') || ''
+// 运行模式: 'local' = 前端直连CMS源（无需后端），'server' = 通过后端API
+const RUN_MODE = getRunMode()
+const API = RUN_MODE === 'server' ? (localStorage.getItem('apiBaseUrl') || '') : ''
 
 async function fetchJSON(url) {
   const res = await fetch(url)
   if (!res.ok) throw new Error(res.statusText)
   return res.json()
+}
+
+// 统一 API 层：根据运行模式自动选择本地或远程
+const api = {
+  // 搜索
+  async search(keyword) {
+    if (RUN_MODE === 'local') {
+      const results = await localSearch(keyword)
+      return { success: true, data: results, sources: getCmsSources().filter(s => s.enabled).map(s => s.name) }
+    }
+    const res = await fetch(`${API}/search`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ q: keyword }) })
+    return res.json()
+  },
+  // 热门推荐
+  async hot(type = '', limit = 18) {
+    if (RUN_MODE === 'local') {
+      const results = await localHot(type, limit)
+      return { success: true, data: results, sources: getCmsSources().filter(s => s.enabled).map(s => s.name) }
+    }
+    const params = new URLSearchParams({ limit, type })
+    return fetchJSON(`${API}/search/hot?${params}`)
+  },
+  // 历史
+  async getHistory() {
+    if (RUN_MODE === 'local') return { success: true, data: getHistory() }
+    return fetchJSON(`${API}/history`)
+  },
+  async saveHistory(item) {
+    if (RUN_MODE === 'local') { saveHistory(item); return { success: true } }
+    return fetch(`${API}/history`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(item) }).then(r => r.json())
+  },
+  async deleteHistory(id) {
+    if (RUN_MODE === 'local') { deleteHistory(id); return { success: true } }
+    return fetch(`${API}/history/${id}`, { method: 'DELETE' }).then(r => r.json())
+  },
+  async clearHistory() {
+    if (RUN_MODE === 'local') { clearHistory(); return { success: true } }
+    return fetch(`${API}/history`, { method: 'DELETE' }).then(r => r.json())
+  },
+  // 收藏
+  async getFavorites() {
+    if (RUN_MODE === 'local') return { success: true, data: getFavorites() }
+    return fetchJSON(`${API}/favorite`)
+  },
+  async addFavorite(item) {
+    if (RUN_MODE === 'local') { addFavorite(item); return { success: true } }
+    return fetch(`${API}/favorite`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(item) }).then(r => r.json())
+  },
+  async removeFavorite(id) {
+    if (RUN_MODE === 'local') { removeFavorite(id); return { success: true } }
+    return fetch(`${API}/favorite/${id}`, { method: 'DELETE' }).then(r => r.json())
+  },
+  async isFavorite(movieId) {
+    if (RUN_MODE === 'local') return isFavorite(movieId)
+    try { const data = await fetchJSON(`${API}/favorite`); return data.data?.some(f => f.movieId === movieId) } catch { return false }
+  },
+  // 弹幕
+  async getDanmaku(videoId) {
+    if (RUN_MODE === 'local') return { success: true, data: getDanmaku(videoId) }
+    return fetchJSON(`${API}/danmaku/${videoId}`)
+  },
+  async addDanmaku(danmaku) {
+    if (RUN_MODE === 'local') { addDanmaku(danmaku.videoId, danmaku); return { success: true } }
+    return fetch(`${API}/danmaku`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(danmaku) }).then(r => r.json())
+  },
+  // 设置/源
+  async getSettings() {
+    if (RUN_MODE === 'local') {
+      return { success: true, data: { sources: getCmsSources(), settings: getPlaySettings() } }
+    }
+    return fetchJSON(`${API}/settings`)
+  },
+  async toggleSource(name) {
+    if (RUN_MODE === 'local') {
+      const sources = getCmsSources()
+      const s = sources.find(s => s.name === name)
+      if (s) { s.enabled = !s.enabled; saveCmsSources(sources) }
+      return { success: true }
+    }
+    return fetch(`${API}/settings/sources/${encodeURIComponent(name)}/toggle`, { method: 'POST' }).then(r => r.json())
+  },
+  async deleteSource(name) {
+    if (RUN_MODE === 'local') {
+      const sources = getCmsSources().filter(s => s.name !== name)
+      saveCmsSources(sources)
+      return { success: true }
+    }
+    return fetch(`${API}/settings/sources/${encodeURIComponent(name)}`, { method: 'DELETE' }).then(r => r.json())
+  },
+  async addSource(source) {
+    if (RUN_MODE === 'local') {
+      const sources = getCmsSources()
+      sources.push({ ...source, enabled: true })
+      saveCmsSources(sources)
+      return { success: true }
+    }
+    return fetch(`${API}/settings/sources/add`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(source) }).then(r => r.json())
+  },
+  async savePlaySettings(settings) {
+    if (RUN_MODE === 'local') { savePlaySettings(settings); return { success: true } }
+    return fetch(`${API}/settings/app`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings) }).then(r => r.json())
+  },
+  // 缓存（仅服务器模式可用）
+  async getCacheList() {
+    if (RUN_MODE === 'local') return { success: true, data: [] }
+    return fetchJSON(`${API}/cache/list`)
+  },
+  async cacheDownload(item) {
+    if (RUN_MODE === 'local') return { success: false, error: '本地模式不支持服务端缓存' }
+    return fetch(`${API}/cache/download`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(item) }).then(r => r.json())
+  },
+  async deleteCache(id) {
+    if (RUN_MODE === 'local') return { success: true }
+    return fetch(`${API}/cache/${id}`, { method: 'DELETE' }).then(r => r.json())
+  },
 }
 
 // ===== Icons =====
@@ -198,7 +316,8 @@ function HomePage() {
   }
 
   const fetchHotFromServer = (params, cacheKey, updateLoading) => {
-    fetchJSON(`${API}/search/hot?${params.toString()}`)
+    const typeMap = { '电影': 'movie', '电视剧': 'tv', '综艺': 'variety', '动漫': 'anime' }
+    api.hot(selectedType ? typeMap[selectedType] || '' : '', 18)
       .then((data) => {
         if (data.success) {
           const movies = data.data || []
@@ -304,12 +423,7 @@ function SearchPage() {
     if (query && query.trim()) {
       setLoading(true)
       setSearched(true)
-      fetch(`${API}/search`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ q: query.trim() })
-      })
-        .then(r => r.json())
+      api.search(query.trim())
         .then((data) => {
           if (data.success) {
             setResults(data.data)
@@ -460,12 +574,9 @@ function PlayerPage() {
 
   // 检查收藏状态
   useEffect(() => {
-    fetchJSON(`${API}/favorite`)
-      .then((data) => {
-        if (data.success) {
-          const found = data.data?.some((f) => f.movieId === movieId || makeMovieId(f.title, f.episodeName) === movieId)
-          setIsFavorited(!!found)
-        }
+    api.isFavorite(movieId)
+      .then((found) => {
+        setIsFavorited(!!found)
       })
       .catch(() => {})
   }, [movieId])
@@ -473,7 +584,7 @@ function PlayerPage() {
   // 获取历史进度并恢复
   useEffect(() => {
     if (!movieId) return
-    fetchJSON(`${API}/history`)
+    api.getHistory()
       .then((data) => {
         if (data.success && data.data) {
           const record = data.data.find((h) => h.movieId === movieId || makeMovieId(h.title, h.episodeName) === movieId)
@@ -513,20 +624,16 @@ function PlayerPage() {
 
     const report = () => {
       if (video.currentTime > 0) {
-        fetch(`${API}/history`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            movieId,
-            title,
-            cover,
-            episodeName,
-            progress: video.currentTime,
-            duration: video.duration || 0,
-            sources,
-            activeSource,
-            activeEpisode,
-          }),
+        api.saveHistory({
+          movieId,
+          title,
+          cover,
+          episodeName,
+          progress: video.currentTime,
+          duration: video.duration || 0,
+          sources,
+          activeSource,
+          activeEpisode,
         }).catch(() => {})
       }
     }
@@ -538,8 +645,9 @@ function PlayerPage() {
     }
   }, [movieId, title, cover, episodeName])
 
-  // 检测广告
+  // 检测广告（仅服务器模式有效，本地模式跳过）
   useEffect(() => {
+    if (RUN_MODE !== 'server') return
     if (currentUrl && currentUrl.includes('.m3u8')) {
       fetch(`${API}/cache/detect-ads`, {
         method: 'POST',
@@ -588,8 +696,9 @@ function PlayerPage() {
     }
   }, [playbackRate])
 
-  // 预缓存
+  // 预缓存（仅服务器模式有效，本地模式跳过）
   useEffect(() => {
+    if (RUN_MODE !== 'server') return
     if (currentUrl && currentUrl.includes('.m3u8')) {
       fetch(`${API}/precache/start`, {
         method: 'POST',
@@ -634,17 +743,12 @@ function PlayerPage() {
   const cacheCurrentEpisode = () => {
     if (!currentUrl || caching) return
     setCaching(true)
-    fetch(`${API}/cache/download`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        url: currentUrl,
-        title,
-        cover,
-        episodeName: currentEp?.name || episode || '第1集'
-      })
+    api.cacheDownload({
+      url: currentUrl,
+      title,
+      cover,
+      episodeName: currentEp?.name || episode || '第1集'
     })
-      .then(r => r.json())
       .then(data => {
         if (data.success) {
           setCaching(false)
@@ -655,13 +759,8 @@ function PlayerPage() {
 
   // 收藏/取消收藏
   const toggleFavorite = () => {
-    const method = isFavorited ? 'DELETE' : 'POST'
-    fetch(`${API}/favorite`, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ movieId, title, cover, episodeName }),
-    })
-      .then((r) => r.json())
+    const action = isFavorited ? api.removeFavorite(movieId) : api.addFavorite({ movieId, title, cover, episodeName })
+    action
       .then((data) => {
         if (data.success) setIsFavorited(!isFavorited)
       })
@@ -784,7 +883,7 @@ function HistoryPage() {
 
   const loadHistory = () => {
     setLoading(true)
-    fetchJSON(`${API}/history`)
+    api.getHistory()
       .then((data) => { if (data.success) setHistoryList(data.data || []) })
       .catch(console.error)
       .finally(() => setLoading(false))
@@ -793,15 +892,13 @@ function HistoryPage() {
   useEffect(() => { loadHistory() }, [])
 
   const deleteHistory = (id) => {
-    fetch(`${API}/history/${id}`, { method: 'DELETE' })
-      .then((r) => r.json())
+    api.deleteHistory(id)
       .then(() => loadHistory())
       .catch(console.error)
   }
 
   const clearAll = () => {
-    fetch(`${API}/history`, { method: 'DELETE' })
-      .then((r) => r.json())
+    api.clearHistory()
       .then(() => loadHistory())
       .catch(console.error)
   }
@@ -919,7 +1016,7 @@ function FavoritePage() {
 
   const loadFavorites = () => {
     setLoading(true)
-    fetchJSON(`${API}/favorite`)
+    api.getFavorites()
       .then((data) => { if (data.success) setFavoriteList(data.data || []) })
       .catch(console.error)
       .finally(() => setLoading(false))
@@ -928,8 +1025,7 @@ function FavoritePage() {
   useEffect(() => { loadFavorites() }, [])
 
   const unfavorite = (id) => {
-    fetch(`${API}/favorite/${id}`, { method: 'DELETE' })
-      .then((r) => r.json())
+    api.removeFavorite(id)
       .then(() => loadFavorites())
       .catch(console.error)
   }
@@ -1014,8 +1110,8 @@ function CachePage() {
 
   const loadCache = () => {
     setLoading(true)
-    fetchJSON(`${API}/cache/list`)
-      .then(data => { if (data.success) setCacheList(data.data) })
+    api.getCacheList()
+      .then(data => { if (data.success) setCacheList(data.data || []) })
       .catch(console.error)
       .finally(() => setLoading(false))
   }
@@ -1023,8 +1119,7 @@ function CachePage() {
   useEffect(() => { loadCache() }, [])
 
   const deleteCache = (id) => {
-    fetch(`${API}/cache/${id}`, { method: 'DELETE' })
-      .then(r => r.json())
+    api.deleteCache(id)
       .then(() => loadCache())
       .catch(console.error)
   }
@@ -1067,6 +1162,12 @@ function CachePage() {
             {cacheList.length} 个影片
           </span>
         </div>
+
+        {RUN_MODE === 'local' && (
+          <div style={{ padding: '14px', background: 'var(--bg-secondary)', borderRadius: 'var(--radius)', border: '1px solid var(--border-light)', marginBottom: 16, fontSize: '14px', color: 'var(--text-muted)' }}>
+            本地模式下缓存功能不可用，请切换到服务器模式
+          </div>
+        )}
 
         {loading ? (
           <div className="loading"><div className="spinner" /></div>
@@ -1296,7 +1397,7 @@ function SettingsPage() {
 
   const loadSettings = () => {
     setLoading(true)
-    fetchJSON(`${API}/settings`)
+    api.getSettings()
       .then(data => {
         if (data.success) {
           setSources(data.data.sources || [])
@@ -1308,16 +1409,14 @@ function SettingsPage() {
   }
 
   const toggleSource = (name) => {
-    fetch(`${API}/settings/sources/${encodeURIComponent(name)}/toggle`, { method: 'POST' })
-      .then(r => r.json())
+    api.toggleSource(name)
       .then(() => loadSettings())
       .catch(console.error)
   }
 
   const deleteSource = (name) => {
     if (!window.confirm(`确定删除源 "${name}" 吗？`)) return
-    fetch(`${API}/settings/sources/${encodeURIComponent(name)}`, { method: 'DELETE' })
-      .then(r => r.json())
+    api.deleteSource(name)
       .then(() => loadSettings())
       .catch(console.error)
   }
@@ -1325,12 +1424,7 @@ function SettingsPage() {
   const addSource = (e) => {
     e.preventDefault()
     if (!newSource.name || !newSource.baseUrl) return
-    fetch(`${API}/settings/sources/add`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newSource)
-    })
-      .then(r => r.json())
+    api.addSource(newSource)
       .then(() => {
         setNewSource({ name: '', baseUrl: '', type: 'apple_cms' })
         loadSettings()
@@ -1340,12 +1434,7 @@ function SettingsPage() {
 
   const saveSettings = () => {
     setSaving(true)
-    fetch(`${API}/settings/app`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(settings)
-    })
-      .then(r => r.json())
+    api.savePlaySettings(settings)
       .then(() => setSaving(false))
       .catch(() => setSaving(false))
   }
@@ -1444,6 +1533,37 @@ function SettingsPage() {
               <span style={{ fontSize: '14px' }}>预缓存目录</span>
               <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{settings.precacheDir || 'data/precache'}</span>
             </div>
+          </div>
+        </div>
+
+        {/* 运行模式切换 */}
+        <div style={{ marginBottom: 32 }}>
+          <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: 16 }}>运行模式</h3>
+          <div style={{ display: 'flex', gap: 12 }}>
+            <button
+              onClick={() => { setRunMode('local'); window.location.reload() }}
+              style={{
+                flex: 1, padding: '14px', borderRadius: 'var(--radius)', border: `2px solid ${RUN_MODE === 'local' ? 'var(--brand)' : 'var(--border)'}`,
+                background: RUN_MODE === 'local' ? 'var(--brand)' : 'var(--bg-secondary)',
+                color: RUN_MODE === 'local' ? '#fff' : 'var(--text-primary)',
+                cursor: 'pointer', textAlign: 'center', transition: 'all var(--transition)'
+              }}
+            >
+              <div style={{ fontSize: '15px', fontWeight: 600, marginBottom: 4 }}>本地模式</div>
+              <div style={{ fontSize: '12px', opacity: 0.8 }}>无需后端服务器，APP 直接连接影视源</div>
+            </button>
+            <button
+              onClick={() => { setRunMode('server'); window.location.reload() }}
+              style={{
+                flex: 1, padding: '14px', borderRadius: 'var(--radius)', border: `2px solid ${RUN_MODE === 'server' ? 'var(--brand)' : 'var(--border)'}`,
+                background: RUN_MODE === 'server' ? 'var(--brand)' : 'var(--bg-secondary)',
+                color: RUN_MODE === 'server' ? '#fff' : 'var(--text-primary)',
+                cursor: 'pointer', textAlign: 'center', transition: 'all var(--transition)'
+              }}
+            >
+              <div style={{ fontSize: '15px', fontWeight: 600, marginBottom: 4 }}>服务器模式</div>
+              <div style={{ fontSize: '12px', opacity: 0.8 }}>连接自建后端，支持缓存、多设备同步</div>
+            </button>
           </div>
         </div>
 
