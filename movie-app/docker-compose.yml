@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:7
+    container_name: movie-app-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - movie-app-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: movie-app-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - movie-app-network
+
+  backend:
+    build: ./backend
+    container_name: movie-app-backend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - MONGODB_URI=mongodb://mongodb:27017/movie_app
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=not-needed
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - movie-app-network
+
+volumes:
+  mongo_data:
+  redis_data:
+
+networks:
+  movie-app-network:
+    driver: bridge
