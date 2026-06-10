@@ -173,18 +173,44 @@ const MOCK_MOVIES = [
   }
 ];
 
+// CORS代理地址（用户可在设置中配置）
+// 格式如: https://corsproxy.io/? 或者 https://api.allorigins.win/raw?url=
+let CORS_PROXY = localStorage.getItem('corsProxy') || '';
+
+// 更新CORS代理地址
+export function updateCorsProxy(proxy) {
+  CORS_PROXY = proxy;
+  if (proxy) {
+    localStorage.setItem('corsProxy', proxy);
+  } else {
+    localStorage.removeItem('corsProxy');
+  }
+}
+
+// 获取带有代理前缀的URL
+function getProxiedUrl(url) {
+  if (CORS_PROXY) {
+    // 如果代理地址已包含参数，使用 &url= 追加
+    if (CORS_PROXY.includes('?')) {
+      return `${CORS_PROXY}url=${encodeURIComponent(url)}`;
+    }
+    return `${CORS_PROXY}?url=${encodeURIComponent(url)}`;
+  }
+  return url;
+}
+
 // 默认CMS源列表（2024年更新精选可用源）
 const DEFAULT_CMS_SOURCES = [
-  { name: '金鹰资源', baseUrl: 'https://jinyingzy.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
-  { name: '红牛资源', baseUrl: 'https://www.hongniuzy2.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
-  { name: '闪电资源', baseUrl: 'https://sdzyapi.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
-  { name: 'CK资源', baseUrl: 'https://ckzy.me/api.php/provide/vod', type: 'apple_cms', enabled: false },
-  { name: '淘片资源', baseUrl: 'https://taopianapi.com/cjapi.php/provide/vod', type: 'apple_cms', enabled: false },
-  { name: '360影视', baseUrl: 'https://360zy.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
-  { name: '光速资源', baseUrl: 'https://api.guangsuapi.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
-  { name: '量子资源', baseUrl: 'http://cj.lziapi.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
-  { name: 'U酷资源', baseUrl: 'https://api.ukuapi.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
-  { name: '非凡资源', baseUrl: 'https://cj.ffzyapi.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
+  { name: '360影视', baseUrl: 'https://360zy.com/api.php/provide/vod', type: 'apple_cms', enabled: true },
+  { name: '非凡资源', baseUrl: 'https://cj.ffzyapi.com/api.php/provide/vod', type: 'apple_cms', enabled: true },
+  { name: '光速资源', baseUrl: 'https://api.guangsuapi.com/api.php/provide/vod', type: 'apple_cms', enabled: true },
+  { name: '量子资源', baseUrl: 'http://cj.lziapi.com/api.php/provide/vod', type: 'apple_cms', enabled: true },
+  { name: 'U酷资源', baseUrl: 'https://api.ukuapi.com/api.php/provide/vod', type: 'apple_cms', enabled: true },
+  { name: '金鹰资源', baseUrl: 'https://jinyingzy.com/api.php/provide/vod', type: 'apple_cms', enabled: true },
+  { name: '淘片资源', baseUrl: 'https://taopianapi.com/cjapi.php/provide/vod', type: 'apple_cms', enabled: true },
+  { name: '红牛资源', baseUrl: 'https://www.hongniuzy2.com/api.php/provide/vod', type: 'apple_cms', enabled: true },
+  { name: 'CK资源', baseUrl: 'https://ckzy.me/api.php/provide/vod', type: 'apple_cms', enabled: true },
+  { name: '闪电资源', baseUrl: 'https://sdzyapi.com/api.php/provide/vod', type: 'apple_cms', enabled: true },
   { name: '最大资源', baseUrl: 'https://api.zuidapi.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
   { name: '百度云资源', baseUrl: 'https://api.apibdzy.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
   { name: '新浪资源', baseUrl: 'https://api.xinlangapi.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
@@ -345,13 +371,15 @@ export function saveCmsSources(sources) {
  */
 export async function searchAppleCMS(source, keyword) {
   try {
-    const url = `${source.baseUrl}/?ac=detail&wd=${encodeURIComponent(keyword)}`;
+    const url = getProxiedUrl(`${source.baseUrl}/?ac=detail&wd=${encodeURIComponent(keyword)}`);
+    const headers = { ...DEFAULT_HEADERS };
+    // 如果是直接URL（非代理路径），添加Referer
+    if (!source.baseUrl.startsWith('/cms/') && !CORS_PROXY) {
+      headers['Referer'] = source.baseUrl;
+    }
     const res = await fetch(url, {
       signal: AbortSignal.timeout(6000), // 超时 6 秒
-      headers: {
-        ...DEFAULT_HEADERS,
-        'Referer': source.baseUrl
-      }
+      headers
     });
 
     if (!res.ok) return [];
@@ -398,13 +426,15 @@ export async function searchAppleCMS(source, keyword) {
  */
 export async function getLatestFromCMS(source, limit = 30) {
   try {
-    const url = `${source.baseUrl}/?ac=videolist&pg=1&pagesize=${limit}`;
+    const url = getProxiedUrl(`${source.baseUrl}/?ac=videolist&pg=1&pagesize=${limit}`);
+    const headers = { ...DEFAULT_HEADERS };
+    // 如果是直接URL（非代理路径），添加Referer
+    if (!source.baseUrl.startsWith('/cms/') && !CORS_PROXY) {
+      headers['Referer'] = source.baseUrl;
+    }
     const res = await fetch(url, {
       signal: AbortSignal.timeout(10000), // 超时 10 秒
-      headers: {
-        ...DEFAULT_HEADERS,
-        'Referer': source.baseUrl
-      }
+      headers
     });
 
     if (!res.ok) return [];
@@ -519,9 +549,11 @@ export async function getHotRecommendations(type = '', limit = 12) {
   let results = Array.from(movieMap.values());
 
   // 如果所有源都失败了，使用mock数据作为降级
+  let fromMock = false;
   if (results.length === 0) {
     console.warn('所有CMS源都不可用，使用Mock数据');
     results = [...MOCK_MOVIES];
+    fromMock = true;
   }
 
   // 根据分类过滤
@@ -536,7 +568,10 @@ export async function getHotRecommendations(type = '', limit = 12) {
     return timeB - timeA;
   });
 
-  return results.slice(0, limit);
+  return {
+    data: results.slice(0, limit),
+    fromMock
+  };
 }
 
 /**

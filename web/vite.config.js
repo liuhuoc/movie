@@ -7,18 +7,11 @@ export default defineConfig({
     port: 5173,
     host: '0.0.0.0',
     proxy: {
+      // 后端API代理
       '/api': {
         target: 'http://localhost:3000',
         changeOrigin: true,
         secure: false,
-        configure: (proxy, options) => {
-          proxy.on('proxyReq', (proxyReq, req, res) => {
-            console.log('[Vite Proxy]', req.url, '->', proxyReq.path);
-          });
-          proxy.on('error', (err, req, res) => {
-            console.log('[Vite Proxy Error]', err.message);
-          });
-        },
       },
       '/ws': {
         target: 'ws://localhost:3000',

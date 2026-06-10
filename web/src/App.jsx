@@ -29,8 +29,8 @@ const api = {
   // 热门推荐
   async hot(type = '', limit = 18) {
     if (RUN_MODE === 'local') {
-      const results = await localHot(type, limit)
-      return { success: true, data: results, sources: getCmsSources().filter(s => s.enabled).map(s => s.name) }
+      const result = await localHot(type, limit)
+      return { success: true, data: result.data, sources: getCmsSources().filter(s => s.enabled).map(s => s.name), fromMock: result.fromMock }
     }
     const params = new URLSearchParams({ limit, type })
     return fetchJSON(`${API}/search/hot?${params}`)
@@ -277,6 +277,7 @@ function HomePage() {
   const [hotMovies, setHotMovies] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedType, setSelectedType] = useState('')
+  const [showProxyTip, setShowProxyTip] = useState(false)
 
   // 本地缓存key和过期时间(5分钟)
   const CACHE_KEY = 'hotMovies_cache'
@@ -337,6 +338,10 @@ function HomePage() {
           } catch (e) {
             // localStorage满或其他错误
           }
+          // 如果使用Mock数据，显示提示
+          if (data.fromMock) {
+            setShowProxyTip(true)
+          }
         }
       })
       .catch(console.error)
@@ -395,6 +400,28 @@ function HomePage() {
             ))}
           </div>
         </div>
+        {/* CORS代理提示 */}
+        {showProxyTip && (
+          <div style={{
+            padding: '12px 16px', marginBottom: '12px', background: 'var(--bg-secondary)',
+            borderRadius: 'var(--radius)', border: '1px solid var(--border)',
+            fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.6
+          }}>
+            <div style={{ fontWeight: 600, marginBottom: 4, color: 'var(--brand)' }}>
+              提示：正在使用演示数据
+            </div>
+            <div>
+              影视源无法加载可能是跨域问题。请在设置页面配置CORS代理地址，如：
+              <code style={{ background: 'var(--bg-primary)', padding: '2px 6px', borderRadius: 4, margin: '0 4px' }}>
+                https://corsproxy.io/?
+              </code>
+              <span> 或 </span>
+              <code style={{ background: 'var(--bg-primary)', padding: '2px 6px', borderRadius: 4, margin: '0 4px' }}>
+                https://api.allorigins.win/raw?url=
+              </code>
+            </div>
+          </div>
+        )}
         {loading ? (
           <div className="loading"><div className="spinner" /></div>
         ) : hotMovies.length === 0 ? (
@@ -1494,6 +1521,16 @@ function SettingsPage() {
 
   const saveSettings = () => {
     setSaving(true)
+    // 保存CORS代理设置
+    const corsProxyInput = document.getElementById('cors-proxy-input')
+    if (corsProxyInput) {
+      const proxy = corsProxyInput.value.trim()
+      if (proxy) {
+        localStorage.setItem('corsProxy', proxy)
+      } else {
+        localStorage.removeItem('corsProxy')
+      }
+    }
     api.savePlaySettings(settings)
       .then(() => setSaving(false))
       .catch(() => setSaving(false))
@@ -1690,6 +1727,33 @@ function SettingsPage() {
                   <span style={{ color: 'var(--text-dim)' }}>点击"检测连接"测试服务器是否可达</span>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+
+        {/* CORS代理设置 */}
+        <div style={{ marginBottom: 32 }}>
+          <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: 16 }}>CORS代理设置</h3>
+          <div style={{ padding: '14px', background: 'var(--bg-secondary)', borderRadius: 'var(--radius)', border: '1px solid var(--border-light)' }}>
+            <div style={{ fontSize: '14px', marginBottom: 8, color: 'var(--text-muted)' }}>
+              代理地址（解决跨域问题）
+            </div>
+            <input
+              type="text"
+              placeholder="例如：https://corsproxy.io/? 或留空不使用代理"
+              defaultValue={localStorage.getItem('corsProxy') || ''}
+              id="cors-proxy-input"
+              style={{
+                width: '100%', padding: '10px 12px', fontSize: '13px',
+                borderRadius: 'var(--radius-md)', border: '1px solid var(--border)',
+                background: 'var(--bg-primary)', color: 'var(--text-primary)',
+                marginBottom: 8
+              }}
+            />
+            <div style={{ fontSize: '12px', color: 'var(--text-dim)', lineHeight: 1.5 }}>
+              如果影视源无法加载，请配置CORS代理。可使用公开代理如：<br />
+              <code style={{ background: 'var(--bg-primary)', padding: '2px 6px', borderRadius: 4 }}>https://corsproxy.io/?</code><br />
+              或部署自己的代理服务。配置后刷新页面生效。
             </div>
           </div>
         </div>
