@@ -406,3 +406,5 @@ export async function getMovieDetail(sourceUrl, vodId) {
     return null;
   }
 }
+
+export { DEFAULT_CMS_SOURCES };
