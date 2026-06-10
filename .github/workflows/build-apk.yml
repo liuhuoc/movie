@@ -26,6 +26,7 @@ on:
 env:
   NODE_VERSION: '20'
   JAVA_VERSION: '17'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
   build-apk:
@@ -78,7 +79,7 @@ jobs:
       - name: Build Debug APK
         if: github.event.inputs.build_type != 'release'
         working-directory: ./web/android
-        run: chmod +x gradlew && ./gradlew assembleDebug
+        run: chmod +x gradlew && ./gradlew assembleDebug --no-daemon --warning-mode=all
 
       - name: Upload Debug APK
         if: github.event.inputs.build_type != 'release'
@@ -91,7 +92,7 @@ jobs:
       - name: Build Release APK (signed with debug key)
         if: github.event.inputs.build_type != 'debug'
         working-directory: ./web/android
-        run: chmod +x gradlew && ./gradlew assembleRelease
+        run: chmod +x gradlew && ./gradlew assembleRelease --no-daemon --warning-mode=all
 
       - name: Upload Release APK
         if: github.event.inputs.build_type != 'debug'
