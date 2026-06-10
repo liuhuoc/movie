@@ -322,6 +322,12 @@ function HomePage() {
         if (data.success) {
           const movies = data.data || []
           setHotMovies(movies)
+          // 如果获取到了真实数据，清除CMS源缓存（避免残留失效源配置）
+          if (movies.length > 0) {
+            try {
+              localStorage.removeItem('cmsSources')
+            } catch (e) {}
+          }
           // 写入本地缓存
           try {
             localStorage.setItem(cacheKey, JSON.stringify({
