@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { HashRouter, Routes, Route, Link, useNavigate, useParams, useSearchParams, useLocation } from 'react-router-dom'
 import Hls from 'hls.js'
 import { aggregateSearch as localSearch, getHotRecommendations as localHot, getCmsSources, saveCmsSources, DEFAULT_CMS_SOURCES } from './services/cmsEngine'
-import { getHistory, saveHistory, deleteHistory, clearHistory, getFavorites, addFavorite, removeFavorite, isFavorite, getDanmaku, addDanmaku, getPlaySettings, savePlaySettings, getRunMode, setRunMode } from './services/localStore'
+import { getHistory, saveHistory, deleteHistory, clearHistory, getFavorites, addFavorite, removeFavorite, isFavorite, getDanmaku, addDanmaku, getPlaySettings, savePlaySettings, getRunMode, setRunMode, getVideoCacheList, getVideoCacheBlob, getVideoCacheTotalSize, deleteVideoCache, clearVideoCache, downloadAndCacheVideo, getCacheDir, setCacheDir, getCacheSizeLimit, setCacheSizeLimit } from './services/localStore'
 
 // ===== API =====
 // 运行模式: 'local' = 前端直连CMS源（无需后端），'server' = 通过后端API
@@ -115,18 +115,41 @@ const api = {
     if (RUN_MODE === 'local') { savePlaySettings(settings); return { success: true } }
     return fetch(`${API}/settings/app`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings) }).then(r => r.json())
   },
-  // 缓存（仅服务器模式可用）
+  // 缓存（本地模式用 IndexedDB，服务器模式走后端 API）
   async getCacheList() {
-    if (RUN_MODE === 'local') return { success: true, data: [] }
+    if (RUN_MODE === 'local') {
+      const data = await getVideoCacheList()
+      return { success: true, data }
+    }
     return fetchJSON(`${API}/cache/list`)
   },
-  async cacheDownload(item) {
-    if (RUN_MODE === 'local') return { success: false, error: '本地模式不支持服务端缓存' }
+  async cacheDownload(item, onProgress) {
+    if (RUN_MODE === 'local') {
+      if (!item || !item.sourceUrl) return { success: false, error: '缺少视频地址' }
+      return await downloadAndCacheVideo(item, onProgress)
+    }
     return fetch(`${API}/cache/download`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(item) }).then(r => r.json())
   },
   async deleteCache(id) {
-    if (RUN_MODE === 'local') return { success: true }
+    if (RUN_MODE === 'local') {
+      return await deleteVideoCache(id)
+    }
     return fetch(`${API}/cache/${id}`, { method: 'DELETE' }).then(r => r.json())
+  },
+  async getCacheSettings() {
+    return {
+      success: true,
+      data: {
+        dir: getCacheDir(),
+        sizeLimit: getCacheSizeLimit(),
+        total: await (RUN_MODE === 'local' ? getVideoCacheTotalSize() : Promise.resolve(0))
+      }
+    }
+  },
+  async saveCacheSettings({ dir, sizeLimit }) {
+    if (dir != null) setCacheDir(dir)
+    if (sizeLimit != null) setCacheSizeLimit(sizeLimit)
+    return { success: true }
   },
 }
 
@@ -824,22 +847,35 @@ function PlayerPage() {
     setDanmakuText('')
   }
 
-  // 缓存当前集
+  // 缓存当前集（本地模式使用 IndexedDB，服务器模式走后端）
   const cacheCurrentEpisode = () => {
     if (!currentUrl || caching) return
     setCaching(true)
+    const epName = currentEp?.name || episode || '第1集'
+    const cacheId = `${title || 'video'}::${epName}`
     api.cacheDownload({
+      id: cacheId,
+      sourceUrl: currentUrl,
       url: currentUrl,
-      title,
-      cover,
-      episodeName: currentEp?.name || episode || '第1集'
+      title: title || '未命名视频',
+      poster: cover,
+      episodeName: epName,
+    }, (pct) => {
+      setPrecacheProgress(pct)
     })
       .then(data => {
+        setCaching(false)
         if (data.success) {
-          setCaching(false)
+          setPrecacheProgress(100)
+          setTimeout(() => setPrecacheProgress(null), 1500)
+        } else {
+          setPrecacheProgress(null)
         }
       })
-      .catch(() => setCaching(false))
+      .catch(() => {
+        setCaching(false)
+        setPrecacheProgress(null)
+      })
   }
 
   // 收藏/取消收藏
@@ -1235,21 +1271,55 @@ function CachePage() {
       .catch(console.error)
   }
 
+  // 本地模式：读取 IndexedDB 的 Blob 并转为 object URL 播放
+  const playLocalCache = async (item) => {
+    try {
+      const blob = await getVideoCacheBlob(item._id || item.id)
+      if (!blob) {
+        alert('缓存已失效或不存在')
+        return
+      }
+      const url = URL.createObjectURL(blob)
+      navigate('/play/aggregate', {
+        state: {
+          title: item.title,
+          cover: item.poster || item.cover,
+          url: url,
+          episode: item.episodeName,
+          sources: [{
+            siteName: '本地缓存',
+            episodes: [{ name: item.episodeName, url: url }]
+          }],
+          activeSource: 0,
+          activeEpisode: 0,
+          isLocalObjectUrl: true,
+        },
+      })
+    } catch (e) {
+      console.error('读取缓存失败', e)
+      alert('读取缓存失败')
+    }
+  }
+
   const playCache = (item) => {
-    navigate('/play/aggregate', {
-      state: {
-        title: item.title,
-        cover: item.cover,
-        url: `/api/cache/stream/${item._id}`,
-        episode: item.episodeName,
-        sources: [{
-          siteName: '本地缓存',
-          episodes: [{ name: item.episodeName, url: `/api/cache/stream/${item._id}` }]
-        }],
-        activeSource: 0,
-        activeEpisode: 0,
-      },
-    })
+    if (RUN_MODE === 'local') {
+      playLocalCache(item)
+    } else {
+      navigate('/play/aggregate', {
+        state: {
+          title: item.title,
+          cover: item.cover,
+          url: `/api/cache/stream/${item._id}`,
+          episode: item.episodeName,
+          sources: [{
+            siteName: '本地缓存',
+            episodes: [{ name: item.episodeName, url: `/api/cache/stream/${item._id}` }]
+          }],
+          activeSource: 0,
+          activeEpisode: 0,
+        },
+      })
+    }
   }
 
   const formatSize = (bytes) => {
@@ -1270,15 +1340,9 @@ function CachePage() {
         <div className="section-header">
           <h2 className="section-title">我的缓存</h2>
           <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-            {cacheList.length} 个影片
+            {cacheList.length} 个影片 · {RUN_MODE === 'local' ? '浏览器存储' : '服务器存储'}
           </span>
         </div>
-
-        {RUN_MODE === 'local' && (
-          <div style={{ padding: '14px', background: 'var(--bg-secondary)', borderRadius: 'var(--radius)', border: '1px solid var(--border-light)', marginBottom: 16, fontSize: '14px', color: 'var(--text-muted)' }}>
-            本地模式下缓存功能不可用，请切换到服务器模式
-          </div>
-        )}
 
         {loading ? (
           <div className="loading"><div className="spinner" /></div>
@@ -1288,16 +1352,20 @@ function CachePage() {
             <p style={{ fontSize: '13px', marginTop: '8px', color: 'var(--text-dim)' }}>
               播放影片时点击"缓存"按钮即可下载
             </p>
+            <p style={{ fontSize: '12px', marginTop: '6px', color: 'var(--text-muted)' }}>
+              {RUN_MODE === 'local' ? '浏览器环境下缓存大小受限，较大视频可能无法完整缓存' : '视频将存储在服务器'}
+            </p>
           </div>
         ) : (
           <div className="cache-list">
             {cacheList.map(item => {
               const status = statusMap[item.status] || statusMap.ready
+              const keyId = item._id || item.id
               return (
-                <div key={item._id} className="cache-item">
+                <div key={keyId} className="cache-item">
                   <div className="cache-item-poster" onClick={() => item.status === 'ready' && playCache(item)}>
-                    {item.cover ? (
-                      <img src={item.cover} alt={item.title} />
+                    {(item.poster || item.cover) ? (
+                      <img src={item.poster || item.cover} alt={item.title} />
                     ) : (
                       <div className="placeholder" style={{ fontSize: '24px' }}>{Icons.film}</div>
                     )}
@@ -1315,7 +1383,7 @@ function CachePage() {
                           {Icons.play} 播放
                         </button>
                       )}
-                      <button className="btn-secondary" onClick={() => deleteCache(item._id)} style={{ padding: '6px 14px', fontSize: '12px', color: 'var(--danger)' }}>
+                      <button className="btn-secondary" onClick={() => deleteCache(item._id || item.id)} style={{ padding: '6px 14px', fontSize: '12px', color: 'var(--danger)' }}>
                         {Icons.trash} 删除
                       </button>
                     </div>
@@ -1494,6 +1562,103 @@ function CmsSourceManager({ sources, onToggle, onDelete, onAdd, newSource, setNe
 }
 
 // ===== Settings Page =====
+// ===== 缓存设置块 =====
+function CacheSettingsBlock() {
+  const [cacheDir, setCacheDirState] = useState(getCacheDir())
+  const [sizeLimit, setSizeLimit] = useState(String(getCacheSizeLimit()))
+  const [totalSize, setTotalSize] = useState(0)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (RUN_MODE === 'local') {
+      getVideoCacheTotalSize().then(s => setTotalSize(s))
+    }
+  }, [])
+
+  const saveCacheConfig = () => {
+    setSaving(true)
+    const sizeMb = parseInt(sizeLimit, 10)
+    api.saveCacheSettings({
+      dir: cacheDir,
+      sizeLimit: isNaN(sizeMb) || sizeMb <= 0 ? 512 : sizeMb,
+    })
+      .then(() => setSaving(false))
+      .catch(() => setSaving(false))
+  }
+
+  const clearAllCache = () => {
+    if (!window.confirm('确定清空全部缓存视频？此操作不可恢复。')) return
+    clearVideoCache().then(() => setTotalSize(0))
+  }
+
+  const formatBytes = (bytes) => {
+    if (!bytes) return '0 MB'
+    if (bytes < 1024) return bytes + ' B'
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + ' KB'
+    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+    return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB'
+  }
+
+  const itemStyle = { padding: '12px 14px', background: 'var(--bg-secondary)', borderRadius: 'var(--radius)', border: '1px solid var(--border-light)' }
+  const inputStyle = { width: '100%', padding: '8px 10px', fontSize: '13px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }
+
+  const envNote = RUN_MODE === 'local'
+    ? '浏览器环境：视频存储在浏览器 IndexedDB 中，容量受浏览器限制（通常为数百 MB~数 GB）'
+    : '服务器模式：视频存储在运行后端服务器的本地磁盘'
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={itemStyle}>
+        <div style={{ fontSize: '14px', marginBottom: 8 }}>缓存视频目录</div>
+        <input
+          type="text"
+          placeholder="video_cache"
+          value={cacheDir}
+          onChange={e => setCacheDirState(e.target.value)}
+          style={inputStyle}
+        />
+        <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginTop: 6 }}>{envNote}</div>
+      </div>
+
+      <div style={itemStyle}>
+        <div style={{ fontSize: '14px', marginBottom: 8 }}>缓存大小上限 (MB)</div>
+        <input
+          type="number"
+          min="64"
+          value={sizeLimit}
+          onChange={e => setSizeLimit(e.target.value)}
+          style={inputStyle}
+        />
+        <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginTop: 6 }}>
+          超过上限后会自动删除最旧的视频（单个视频超过上限将无法缓存
+        </div>
+        <div style={{ fontSize: '13px', color: 'var(--text-dim)', marginTop: 8 }}>
+          当前已占用：{formatBytes(totalSize)} / {sizeLimit} MB
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+        <button
+          className="btn-primary"
+          onClick={saveCacheConfig}
+          disabled={saving}
+          style={{ padding: '8px 16px', fontSize: '13px' }}
+        >
+          {saving ? '保存中...' : '保存设置'}
+        </button>
+        {RUN_MODE === 'local' && (
+          <button
+            onClick={clearAllCache}
+            style={{ padding: '8px 16px', fontSize: '13px', background: 'var(--danger)', color: '#fff', border: 'none', borderRadius: 'var(--radius-md)', cursor: 'pointer' }}
+          >
+            清空缓存
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function SettingsPage() {
   const [sources, setSources] = useState([])
   const [settings, setSettings] = useState({})
@@ -1645,16 +1810,7 @@ function SettingsPage() {
         {/* 缓存设置 */}
         <div style={{ marginBottom: 32 }}>
           <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: 16 }}>缓存设置</h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-secondary)', borderRadius: 'var(--radius)', border: '1px solid var(--border-light)' }}>
-              <span style={{ fontSize: '14px' }}>缓存目录</span>
-              <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{settings.cacheDir || 'data/cache'}</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-secondary)', borderRadius: 'var(--radius)', border: '1px solid var(--border-light)' }}>
-              <span style={{ fontSize: '14px' }}>预缓存目录</span>
-              <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{settings.precacheDir || 'data/precache'}</span>
-            </div>
-          </div>
+          <CacheSettingsBlock />
         </div>
 
         {/* 运行模式切换 */}

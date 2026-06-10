@@ -287,3 +287,319 @@ export function setRunMode(mode) {
     console.error('设置运行模式失败:', e.message);
   }
 }
+
+// ==================== 视频缓存（本地模式 - 使用 IndexedDB） ====================
+//
+// 浏览器环境使用 IndexedDB 存储二进制视频文件；
+// Capacitor（安卓）环境下可切换为 File System API，保存到设备的"缓存视频目录"。
+// 通过 localStorage 中的 cacheDir 标识存储路径 / 缓存大小限制。
+
+const DB_NAME = 'videoCacheDB';
+const DB_VERSION = 1;
+const STORE_NAME = 'videos';
+
+// 获取/设置缓存目录配置（用于 Capacitor 环境；浏览器环境只是逻辑上的标识）
+export function getCacheDir() {
+  try {
+    return localStorage.getItem('cacheDir') || 'video_cache';
+  } catch (e) {
+    return 'video_cache';
+  }
+}
+
+export function setCacheDir(dir) {
+  try {
+    localStorage.setItem('cacheDir', dir || 'video_cache');
+  } catch (e) {
+    console.error('设置缓存目录失败:', e.message);
+  }
+}
+
+// 获取/设置缓存大小限制（MB）
+export function getCacheSizeLimit() {
+  try {
+    const v = parseInt(localStorage.getItem('cacheSizeLimit'), 10);
+    return (v > 0 && v <= 200000) ? v : 512;
+  } catch (e) {
+    return 512;
+  }
+}
+
+export function setCacheSizeLimit(mb) {
+  try {
+    const v = parseInt(mb, 10);
+    localStorage.setItem('cacheSizeLimit', String(v));
+  } catch (e) {
+    console.error('设置缓存大小失败:', e.message);
+  }
+}
+
+// ---- IndexedDB helper ----
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+        store.createIndex('createdAt', 'createdAt', { unique: false });
+        store.createIndex('title', 'title', { unique: false });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+    req.onblocked = () => reject(new Error('IndexedDB blocked'));
+  });
+}
+
+function withDB(action) {
+  return openDB().then(db => {
+    return new Promise((resolve, reject) => {
+      try {
+        const result = action(db, resolve, reject);
+        if (result && typeof result.then === 'function') {
+          result.then(resolve).catch(reject);
+        }
+      } catch (e) {
+        reject(e);
+      }
+    }).finally(() => db.close());
+  });
+}
+
+/**
+ * 获取缓存视频列表
+ */
+export function getVideoCacheList() {
+  return withDB((db, resolve) => {
+    const tx = db.transaction(STORE_NAME, 'readonly');
+    const store = tx.objectStore(STORE_NAME);
+    const req = store.getAll();
+    req.onsuccess = () => {
+      const items = (req.result || []).map(item => ({
+        _id: item.id,
+        id: item.id,
+        title: item.title,
+        episodeName: item.episodeName,
+        poster: item.poster,
+        fileSize: item.fileSize || 0,
+        mimeType: item.mimeType || 'video/mp4',
+        status: 'ready',
+        sourceUrl: item.sourceUrl || '',
+        createdAt: item.createdAt,
+        // blob 通过 getVideoCacheBlob 单独获取
+      }));
+      items.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      resolve(items);
+    };
+    req.onerror = () => resolve([]);
+  }).catch(() => []);
+}
+
+/**
+ * 读取单个缓存视频的 Blob
+ */
+export function getVideoCacheBlob(id) {
+  return withDB((db, resolve) => {
+    const tx = db.transaction(STORE_NAME, 'readonly');
+    const store = tx.objectStore(STORE_NAME);
+    const req = store.get(id);
+    req.onsuccess = () => {
+      if (req.result && req.result.blob) {
+        resolve(req.result.blob);
+      } else {
+        resolve(null);
+      }
+    };
+    req.onerror = () => resolve(null);
+  }).catch(() => null);
+}
+
+/**
+ * 估算当前缓存总量（字节）
+ */
+export function getVideoCacheTotalSize() {
+  return withDB((db, resolve) => {
+    const tx = db.transaction(STORE_NAME, 'readonly');
+    const store = tx.objectStore(STORE_NAME);
+    const req = store.openCursor();
+    let total = 0;
+    req.onsuccess = (e) => {
+      const cursor = e.target.result;
+      if (cursor) {
+        total += cursor.value.fileSize || 0;
+        cursor.continue();
+      } else {
+        resolve(total);
+      }
+    };
+    req.onerror = () => resolve(total);
+  }).catch(() => 0);
+}
+
+/**
+ * 删除最旧的缓存，直到腾出 spaceNeeded 字节
+ */
+function makeRoom(db, spaceNeeded) {
+  return new Promise((resolve) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    const index = store.index('createdAt');
+    const req = index.openCursor(null, 'next'); // 最旧的先
+    let freed = 0;
+
+    req.onsuccess = (e) => {
+      const cursor = e.target.result;
+      if (cursor && freed < spaceNeeded) {
+        freed += cursor.value.fileSize || 0;
+        cursor.delete();
+        cursor.continue();
+      } else {
+        resolve(freed);
+      }
+    };
+    req.onerror = () => resolve(freed);
+  });
+}
+
+/**
+ * 保存一个视频到缓存
+ * @param {Object} meta - { id, title, episodeName, poster, sourceUrl, mimeType }
+ * @param {Blob} blob - 视频二进制数据
+ */
+export async function saveVideoCache(meta, blob) {
+  try {
+    const fileSize = blob.size;
+    const limitBytes = getCacheSizeLimit() * 1024 * 1024;
+
+    // 单个文件超限时直接拒绝
+    if (fileSize > limitBytes) {
+      return { success: false, error: '文件大小超过缓存上限' };
+    }
+
+    const db = await openDB();
+    try {
+      // 先估算占用
+      const tx0 = db.transaction(STORE_NAME, 'readonly');
+      const store0 = tx0.objectStore(STORE_NAME);
+      const req0 = store0.openCursor();
+      let total = 0;
+      const existingPromise = new Promise((resolve) => {
+        req0.onsuccess = (e) => {
+          const cursor = e.target.result;
+          if (cursor) {
+            total += cursor.value.fileSize || 0;
+            cursor.continue();
+          } else {
+            resolve();
+          }
+        };
+        req0.onerror = () => resolve();
+      });
+      await existingPromise;
+
+      // 需要腾出空间
+      if (total + fileSize > limitBytes) {
+        await makeRoom(db, total + fileSize - limitBytes);
+      }
+
+      // 写入（若 id 相同则覆盖）
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      const record = {
+        id: meta.id,
+        title: meta.title || '未命名视频',
+        episodeName: meta.episodeName || '',
+        poster: meta.poster || '',
+        sourceUrl: meta.sourceUrl || '',
+        mimeType: meta.mimeType || 'video/mp4',
+        fileSize: fileSize,
+        blob: blob,
+        createdAt: meta.createdAt || Date.now(),
+      };
+      const req = store.put(record);
+      return await new Promise((resolve, reject) => {
+        req.onsuccess = () => resolve({ success: true });
+        req.onerror = () => reject(req.error);
+      });
+    } finally {
+      db.close();
+    }
+  } catch (e) {
+    console.error('保存视频缓存失败:', e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * 删除一个缓存视频
+ */
+export function deleteVideoCache(id) {
+  return withDB((db, resolve) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    const req = store.delete(id);
+    req.onsuccess = () => resolve({ success: true });
+    req.onerror = () => resolve({ success: false });
+  }).catch(() => ({ success: false }));
+}
+
+/**
+ * 清空全部视频缓存
+ */
+export function clearVideoCache() {
+  return withDB((db, resolve) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    const req = store.clear();
+    req.onsuccess = () => resolve({ success: true });
+    req.onerror = () => resolve({ success: false });
+  }).catch(() => ({ success: false }));
+}
+
+/**
+ * 从远程 URL 下载视频并缓存
+ * @param {Object} meta - { id, title, episodeName, poster, sourceUrl }
+ * @param {Function} onProgress - (percent) => void
+ */
+export async function downloadAndCacheVideo(meta, onProgress) {
+  try {
+    const controller = new AbortController();
+    const resp = await fetch(meta.sourceUrl, {
+      signal: controller.signal,
+      headers: meta.headers || {},
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+    const contentLength = parseInt(resp.headers.get('content-length') || '0', 10);
+    const reader = resp.body ? resp.body.getReader() : null;
+    const mimeType = resp.headers.get('content-type') || 'video/mp4';
+
+    let received = 0;
+    const chunks = [];
+
+    if (reader) {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        received += value.length;
+        if (contentLength && onProgress) {
+          onProgress(Math.min(99, (received / contentLength) * 100));
+        }
+      }
+    } else {
+      const buf = await resp.arrayBuffer();
+      chunks.push(new Uint8Array(buf));
+      received = buf.byteLength;
+    }
+
+    const blob = new Blob(chunks, { type: mimeType });
+    const result = await saveVideoCache({ ...meta, mimeType }, blob);
+    if (onProgress) onProgress(100);
+    return result;
+  } catch (e) {
+    console.error('下载并缓存视频失败:', e.message);
+    return { success: false, error: e.message };
+  }
+}
