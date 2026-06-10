@@ -1271,28 +1271,43 @@ function CachePage() {
       .catch(console.error)
   }
 
-  // 本地模式：读取 IndexedDB 的 Blob 并转为 object URL 播放
+  // 本地模式：读取 IndexedDB 的 Blob 或 Capacitor 文件 URI 并转为 object URL 播放
   const playLocalCache = async (item) => {
     try {
-      const blob = await getVideoCacheBlob(item._id || item.id)
-      if (!blob) {
+      const blobOrUri = await getVideoCacheBlob(item._id || item.id)
+      if (!blobOrUri) {
         alert('缓存已失效或不存在')
         return
       }
-      const url = URL.createObjectURL(blob)
+
+      let playUrl
+      // Capacitor 环境返回的是文件 URI (file://...)
+      if (typeof blobOrUri === 'string' && blobOrUri.startsWith('file://')) {
+        playUrl = blobOrUri
+      } else if (blobOrUri instanceof Blob) {
+        // 浏览器环境返回 Blob，转为 object URL
+        playUrl = URL.createObjectURL(blobOrUri)
+      } else if (typeof blobOrUri === 'string') {
+        // 已经是字符串 URL
+        playUrl = blobOrUri
+      } else {
+        alert('缓存格式不支持')
+        return
+      }
+
       navigate('/play/aggregate', {
         state: {
           title: item.title,
           cover: item.poster || item.cover,
-          url: url,
+          url: playUrl,
           episode: item.episodeName,
           sources: [{
             siteName: '本地缓存',
-            episodes: [{ name: item.episodeName, url: url }]
+            episodes: [{ name: item.episodeName, url: playUrl }]
           }],
           activeSource: 0,
           activeEpisode: 0,
-          isLocalObjectUrl: true,
+          isLocalObjectUrl: typeof playUrl === 'string' && playUrl.startsWith('blob:'),
         },
       })
     } catch (e) {

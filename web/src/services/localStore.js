@@ -2,7 +2,31 @@
  * 本地存储服务
  * 替代 MongoDB，使用 localStorage 实现数据的持久化存储
  * 包含观看历史、收藏、弹幕、播放设置、运行模式等功能
+ * 视频缓存在 Capacitor 环境下使用文件系统 API，支持大容量存储
  */
+
+// ==================== 平台检测 ====================
+// 检测是否为 Capacitor 原生环境
+export const isCapacitor = () => {
+  return typeof window !== 'undefined' &&
+    window.Capacitor !== undefined &&
+    window.Capacitor.Plugins !== undefined
+}
+
+// Capacitor 文件系统存储模块（动态加载）
+let fsStore = null
+
+async function getFsStore() {
+  if (fsStore) return fsStore
+  try {
+    const module = await import('./fsStore.js')
+    fsStore = module
+    return fsStore
+  } catch (e) {
+    console.error('加载文件系统存储模块失败', e)
+    return null
+  }
+}
 
 // ==================== 观看历史 ====================
 
@@ -369,8 +393,14 @@ function withDB(action) {
 
 /**
  * 获取缓存视频列表
+ * Capacitor 环境下使用文件系统，浏览器环境使用 IndexedDB
  */
-export function getVideoCacheList() {
+export async function getVideoCacheList() {
+  if (isCapacitor()) {
+    const fs = await getFsStore()
+    if (fs) return fs.getVideoCacheList()
+  }
+  // 浏览器环境使用 IndexedDB
   return withDB((db, resolve) => {
     const tx = db.transaction(STORE_NAME, 'readonly');
     const store = tx.objectStore(STORE_NAME);
@@ -397,9 +427,16 @@ export function getVideoCacheList() {
 }
 
 /**
- * 读取单个缓存视频的 Blob
+ * 读取单个缓存视频的 Blob（浏览器）或文件 URI（Capacitor）
+ * 返回值：浏览器返回 Blob，Capacitor 返回文件 URI 字符串
  */
-export function getVideoCacheBlob(id) {
+export async function getVideoCacheBlob(id) {
+  if (isCapacitor()) {
+    const fs = await getFsStore()
+    if (fs) return fs.getVideoCacheUrl(id)
+    return null
+  }
+  // 浏览器环境使用 IndexedDB
   return withDB((db, resolve) => {
     const tx = db.transaction(STORE_NAME, 'readonly');
     const store = tx.objectStore(STORE_NAME);
@@ -418,7 +455,11 @@ export function getVideoCacheBlob(id) {
 /**
  * 估算当前缓存总量（字节）
  */
-export function getVideoCacheTotalSize() {
+export async function getVideoCacheTotalSize() {
+  if (isCapacitor()) {
+    const fs = await getFsStore()
+    if (fs) return fs.getVideoCacheTotalSize()
+  }
   return withDB((db, resolve) => {
     const tx = db.transaction(STORE_NAME, 'readonly');
     const store = tx.objectStore(STORE_NAME);
@@ -464,10 +505,17 @@ function makeRoom(db, spaceNeeded) {
 
 /**
  * 保存一个视频到缓存
+ * Capacitor 环境下使用文件系统（支持大容量），浏览器环境使用 IndexedDB
  * @param {Object} meta - { id, title, episodeName, poster, sourceUrl, mimeType }
  * @param {Blob} blob - 视频二进制数据
  */
 export async function saveVideoCache(meta, blob) {
+  if (isCapacitor()) {
+    const fs = await getFsStore()
+    if (fs) return fs.saveVideoCache(meta, blob)
+    return { success: false, error: '文件系统模块不可用' }
+  }
+
   try {
     const fileSize = blob.size;
     const limitBytes = getCacheSizeLimit() * 1024 * 1024;
@@ -533,8 +581,14 @@ export async function saveVideoCache(meta, blob) {
 
 /**
  * 删除一个缓存视频
+ * Capacitor 环境下使用文件系统，浏览器环境使用 IndexedDB
  */
-export function deleteVideoCache(id) {
+export async function deleteVideoCache(id) {
+  if (isCapacitor()) {
+    const fs = await getFsStore()
+    if (fs) return fs.deleteVideoCache(id)
+    return { success: false, error: '文件系统模块不可用' }
+  }
   return withDB((db, resolve) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
@@ -546,8 +600,14 @@ export function deleteVideoCache(id) {
 
 /**
  * 清空全部视频缓存
+ * Capacitor 环境下使用文件系统，浏览器环境使用 IndexedDB
  */
-export function clearVideoCache() {
+export async function clearVideoCache() {
+  if (isCapacitor()) {
+    const fs = await getFsStore()
+    if (fs) return fs.clearVideoCache()
+    return { success: false, error: '文件系统模块不可用' }
+  }
   return withDB((db, resolve) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
@@ -559,10 +619,18 @@ export function clearVideoCache() {
 
 /**
  * 从远程 URL 下载视频并缓存
+ * Capacitor 环境下使用文件系统，浏览器环境使用 IndexedDB
  * @param {Object} meta - { id, title, episodeName, poster, sourceUrl }
  * @param {Function} onProgress - (percent) => void
  */
 export async function downloadAndCacheVideo(meta, onProgress) {
+  // Capacitor 环境使用文件系统存储
+  if (isCapacitor()) {
+    const fs = await getFsStore()
+    if (fs) return fs.downloadAndCacheVideo(meta, onProgress)
+    return { success: false, error: '文件系统模块不可用' }
+  }
+
   try {
     const controller = new AbortController();
     const resp = await fetch(meta.sourceUrl, {
