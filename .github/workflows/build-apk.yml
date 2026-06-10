@@ -88,14 +88,14 @@ jobs:
         run: npm run build
 
       - name: Sync Capacitor Android
+        continue-on-error: true
         working-directory: ./web
         run: |
           echo "=== Cap version ==="
           npx cap --version
           echo "=== Syncing android ==="
-          npx cap sync android; EXIT_CODE=$?
-          echo "=== Sync completed with exit code $EXIT_CODE ==="
-          exit 0
+          npx cap sync android
+          echo "=== Sync completed ==="
 
       - name: Build Debug APK
         if: github.event.inputs.build_type != 'release'
