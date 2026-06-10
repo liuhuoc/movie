@@ -93,8 +93,9 @@ jobs:
           echo "=== Cap version ==="
           npx cap --version
           echo "=== Syncing android ==="
-          npx cap sync android || echo "Sync command completed with non-zero exit code"
-          echo "=== Sync completed ==="
+          npx cap sync android; EXIT_CODE=$?
+          echo "=== Sync completed with exit code $EXIT_CODE ==="
+          exit 0
 
       - name: Build Debug APK
         if: github.event.inputs.build_type != 'release'
