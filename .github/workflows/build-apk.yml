@@ -93,8 +93,8 @@ jobs:
         run: |
           echo "=== Cap version ==="
           npx cap --version
-          echo "=== Syncing android ==="
-          npx cap sync android
+          echo "=== Updating android ==="
+          npx cap update android
           echo "=== Sync completed ==="
 
       - name: Build Debug APK
