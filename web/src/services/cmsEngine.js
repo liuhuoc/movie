@@ -173,27 +173,19 @@ const MOCK_MOVIES = [
   }
 ];
 
-// 默认CMS源列表（精选稳定源）
+// 默认CMS源列表（2024年更新精选可用源）
 const DEFAULT_CMS_SOURCES = [
+  { name: '金鹰资源', baseUrl: 'https://jinyingzy.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
+  { name: '红牛资源', baseUrl: 'https://www.hongniuzy2.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
+  { name: '闪电资源', baseUrl: 'https://sdzyapi.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
+  { name: 'CK资源', baseUrl: 'https://ckzy.me/api.php/provide/vod', type: 'apple_cms', enabled: false },
+  { name: '淘片资源', baseUrl: 'https://taopianapi.com/cjapi.php/provide/vod', type: 'apple_cms', enabled: false },
   { name: '360影视', baseUrl: 'https://360zy.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
-  { name: '360影视2', baseUrl: 'https://www.360zy.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
-  { name: '爱奇艺', baseUrl: 'https://iqiyizy.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
   { name: '光速资源', baseUrl: 'https://api.guangsuapi.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
   { name: '量子资源', baseUrl: 'http://cj.lziapi.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
-  { name: '卧龙资源', baseUrl: 'https://collect.wolongzy.cc/api.php/provide/vod', type: 'apple_cms', enabled: false },
-  { name: '天空资源', baseUrl: 'https://api.tiankongapi.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
-  { name: '无尽资源', baseUrl: 'https://api.wujinapi.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
-  { name: '金鹰资源', baseUrl: 'https://jyzyapi.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
-  { name: '非凡资源', baseUrl: 'https://cj.ffzyapi.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
   { name: 'U酷资源', baseUrl: 'https://api.ukuapi.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
-  { name: '麒麟资源', baseUrl: 'https://www.qilinzyz.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
-  { name: '番茄资源', baseUrl: 'http://api.fqzy.cc/api.php/provide/vod', type: 'apple_cms', enabled: false },
-  { name: '红牛资源', baseUrl: 'https://www.hongniuzy1.com/inc/api.php', type: 'apple_cms', enabled: false },
-  { name: '快播资源', baseUrl: 'http://www.kuaibozy.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
-  { name: '8090资源', baseUrl: 'http://zy.yilans.net:8090/api.php/provide/vod', type: 'apple_cms', enabled: false },
-  { name: '八戒资源', baseUrl: 'https://www.bajiezy.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
+  { name: '非凡资源', baseUrl: 'https://cj.ffzyapi.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
   { name: '最大资源', baseUrl: 'https://api.zuidapi.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
-  { name: '淘片资源', baseUrl: 'https://taopianapi.com/cjapi.php/provide/vod', type: 'apple_cms', enabled: false },
   { name: '百度云资源', baseUrl: 'https://api.apibdzy.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
   { name: '新浪资源', baseUrl: 'https://api.xinlangapi.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
   { name: '火狐资源', baseUrl: 'https://api.huhuzy.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
