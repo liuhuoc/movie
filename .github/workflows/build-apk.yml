@@ -75,11 +75,10 @@ jobs:
       - name: Sync Capacitor Android
         working-directory: ./web
         run: |
-          set -e
           echo "=== Cap version ==="
           npx cap --version
           echo "=== Syncing android ==="
-          npx cap sync android --verbose || { echo "=== Sync failed ==="; npx cap doctor; exit 1; }
+          npx cap sync android
           echo "=== Sync completed ==="
 
       - name: Build Debug APK
