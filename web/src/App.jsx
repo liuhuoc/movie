@@ -557,6 +557,8 @@ function PlayerPage() {
   const [playbackRate, setPlaybackRate] = useState(1)
   const [isFavorited, setIsFavorited] = useState(false)
   const [precacheProgress, setPrecacheProgress] = useState(null)
+  const [playError, setPlayError] = useState(null)
+  const [loading, setLoading] = useState(true)
 
   const {
     title = '播放',
@@ -669,12 +671,36 @@ function PlayerPage() {
     if (!currentUrl || !videoRef.current) return
 
     const video = videoRef.current
+    setPlayError(null)
+    setLoading(true)
+
+    // 通用视频错误处理
+    const handleVideoError = () => {
+      setLoading(false)
+      setPlayError('视频加载失败，可能是源地址无效或跨域问题')
+    }
+
+    const handleVideoCanPlay = () => {
+      setLoading(false)
+      setPlayError(null)
+    }
+
+    video.addEventListener('error', handleVideoError)
+    video.addEventListener('canplay', handleVideoCanPlay)
 
     if (currentUrl.includes('.m3u8') && Hls.isSupported()) {
       const hls = new Hls({ enableWorker: true, lowLatencyMode: true })
       hls.loadSource(currentUrl)
       hls.attachMedia(video)
-      hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}))
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        video.play().catch(() => {})
+      })
+      hls.on(Hls.Events.ERROR, (event, data) => {
+        if (data?.fatal) {
+          setLoading(false)
+          setPlayError(`播放失败: ${data.type || '未知错误'}`)
+        }
+      })
       hlsRef.current = hls
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = currentUrl
@@ -685,6 +711,8 @@ function PlayerPage() {
     }
 
     return () => {
+      video.removeEventListener('error', handleVideoError)
+      video.removeEventListener('canplay', handleVideoCanPlay)
       if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null }
     }
   }, [currentUrl])
@@ -804,6 +832,32 @@ function PlayerPage() {
 
       <div className="player-container">
         <video ref={videoRef} playsInline controls style={{ width: '100%', height: '100%' }} />
+        {/* 加载状态 */}
+        {loading && !playError && (
+          <div style={{
+            position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'rgba(0,0,0,0.6)', zIndex: 10, color: '#fff', fontSize: '14px'
+          }}>
+            <div className="loading"><div className="spinner" /></div>
+            <span style={{ marginLeft: '12px' }}>正在加载视频...</span>
+          </div>
+        )}
+        {/* 错误提示 */}
+        {playError && (
+          <div style={{
+            position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            background: 'rgba(0,0,0,0.75)', zIndex: 10, color: '#fff', padding: '20px', textAlign: 'center'
+          }}>
+            <div style={{ fontSize: '32px', marginBottom: '12px' }}>⚠️</div>
+            <div style={{ fontSize: '16px', fontWeight: 600, marginBottom: '8px' }}>播放出错</div>
+            <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.8)', marginBottom: '16px' }}>{playError}</div>
+            <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)' }}>
+              当前使用的是测试视频源，部分源可能受网络/CDN限制
+            </div>
+          </div>
+        )}
         {/* 广告跳过提示 */}
         {adSkipped && (
           <div className="ad-skip-toast">

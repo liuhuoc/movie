@@ -4,6 +4,15 @@
  * 用于在前端直接请求 CMS 采集站 API，实现搜索、推荐、详情等功能
  */
 
+// 公共测试视频URL（公开可用的HLS流）
+const PUBLIC_TEST_STREAMS = [
+  'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
+  'https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8',
+  'https://test-streams.mux.dev/test_001/stream.m3u8',
+  'https://test-streams.mux.dev/dai-discontinuity-deltatre/manifest.m3u8',
+  'https://test-streams.mux.dev/pts_shift/master.m3u8',
+];
+
 // Mock数据 - 当所有CMS源都不可用时使用
 const MOCK_MOVIES = [
   {
@@ -17,7 +26,7 @@ const MOCK_MOVIES = [
     rating: 9.2,
     episodeText: 'HD',
     sourceName: '推荐',
-    sources: [{ siteName: '线路1', episodes: [{ name: '正片', url: 'https://example.com/1.m3u8' }] }]
+    sources: [{ siteName: '测试线路1', episodes: [{ name: '正片', url: PUBLIC_TEST_STREAMS[0] }] }]
   },
   {
     id: '2',
@@ -28,9 +37,9 @@ const MOCK_MOVIES = [
     type: 'tv',
     typeText: '电视剧',
     rating: 9.5,
-    episodeText: '更新至30集',
+    episodeText: '更新至6集',
     sourceName: '推荐',
-    sources: [{ siteName: '线路1', episodes: Array.from({ length: 30 }, (_, i) => ({ name: `第${i + 1}集`, url: `https://example.com/ep${i + 1}.m3u8` })) }]
+    sources: [{ siteName: '测试线路1', episodes: Array.from({ length: 6 }, (_, i) => ({ name: `第${i + 1}集`, url: PUBLIC_TEST_STREAMS[i % PUBLIC_TEST_STREAMS.length] })) }]
   },
   {
     id: '3',
@@ -41,9 +50,9 @@ const MOCK_MOVIES = [
     type: 'tv',
     typeText: '电视剧',
     rating: 9.1,
-    episodeText: '全39集',
+    episodeText: '全6集',
     sourceName: '推荐',
-    sources: [{ siteName: '线路1', episodes: Array.from({ length: 39 }, (_, i) => ({ name: `第${i + 1}集`, url: `https://example.com/kb${i + 1}.m3u8` })) }]
+    sources: [{ siteName: '测试线路1', episodes: Array.from({ length: 6 }, (_, i) => ({ name: `第${i + 1}集`, url: PUBLIC_TEST_STREAMS[(i + 1) % PUBLIC_TEST_STREAMS.length] })) }]
   },
   {
     id: '4',
@@ -54,9 +63,9 @@ const MOCK_MOVIES = [
     type: 'tv',
     typeText: '电视剧',
     rating: 9.0,
-    episodeText: '全30集',
+    episodeText: '全6集',
     sourceName: '推荐',
-    sources: [{ siteName: '线路1', episodes: Array.from({ length: 30 }, (_, i) => ({ name: `第${i + 1}集`, url: `https://example.com/fh${i + 1}.m3u8` })) }]
+    sources: [{ siteName: '测试线路1', episodes: Array.from({ length: 6 }, (_, i) => ({ name: `第${i + 1}集`, url: PUBLIC_TEST_STREAMS[(i + 2) % PUBLIC_TEST_STREAMS.length] })) }]
   },
   {
     id: '5',
@@ -69,7 +78,7 @@ const MOCK_MOVIES = [
     rating: 8.8,
     episodeText: 'HD',
     sourceName: '推荐',
-    sources: [{ siteName: '线路1', episodes: [{ name: '正片', url: 'https://example.com/oppenheimer.m3u8' }] }]
+    sources: [{ siteName: '测试线路1', episodes: [{ name: '正片', url: PUBLIC_TEST_STREAMS[1] }] }]
   },
   {
     id: '6',
@@ -82,7 +91,7 @@ const MOCK_MOVIES = [
     rating: 8.5,
     episodeText: 'HD',
     sourceName: '推荐',
-    sources: [{ siteName: '线路1', episodes: [{ name: '正片', url: 'https://example.com/suzume.m3u8' }] }]
+    sources: [{ siteName: '测试线路1', episodes: [{ name: '正片', url: PUBLIC_TEST_STREAMS[2] }] }]
   },
   {
     id: '7',
@@ -93,9 +102,9 @@ const MOCK_MOVIES = [
     type: 'tv',
     typeText: '电视剧',
     rating: 9.4,
-    episodeText: '全12集',
+    episodeText: '全6集',
     sourceName: '推荐',
-    sources: [{ siteName: '线路1', episodes: Array.from({ length: 12 }, (_, i) => ({ name: `第${i + 1}集`, url: `https://example.com/mc${i + 1}.m3u8` })) }]
+    sources: [{ siteName: '测试线路1', episodes: Array.from({ length: 6 }, (_, i) => ({ name: `第${i + 1}集`, url: PUBLIC_TEST_STREAMS[(i + 3) % PUBLIC_TEST_STREAMS.length] })) }]
   },
   {
     id: '8',
@@ -108,7 +117,7 @@ const MOCK_MOVIES = [
     rating: 9.0,
     episodeText: 'HD',
     sourceName: '推荐',
-    sources: [{ siteName: '线路1', episodes: [{ name: '正片', url: 'https://example.com/slamdunk.m3u8' }] }]
+    sources: [{ siteName: '测试线路1', episodes: [{ name: '正片', url: PUBLIC_TEST_STREAMS[3] }] }]
   },
   {
     id: '9',
@@ -119,9 +128,9 @@ const MOCK_MOVIES = [
     type: 'tv',
     typeText: '电视剧',
     rating: 8.8,
-    episodeText: '更新至40集',
+    episodeText: '更新至6集',
     sourceName: '推荐',
-    sources: [{ siteName: '线路1', episodes: Array.from({ length: 40 }, (_, i) => ({ name: `第${i + 1}集`, url: `https://example.com/qyn${i + 1}.m3u8` })) }]
+    sources: [{ siteName: '测试线路1', episodes: Array.from({ length: 6 }, (_, i) => ({ name: `第${i + 1}集`, url: PUBLIC_TEST_STREAMS[(i + 4) % PUBLIC_TEST_STREAMS.length] })) }]
   },
   {
     id: '10',
@@ -134,7 +143,7 @@ const MOCK_MOVIES = [
     rating: 9.1,
     episodeText: 'HD',
     sourceName: '推荐',
-    sources: [{ siteName: '线路1', episodes: [{ name: '正片', url: 'https://example.com/spiderman.m3u8' }] }]
+    sources: [{ siteName: '测试线路1', episodes: [{ name: '正片', url: PUBLIC_TEST_STREAMS[4] }] }]
   },
   {
     id: '11',
@@ -145,9 +154,9 @@ const MOCK_MOVIES = [
     type: 'tv',
     typeText: '电视剧',
     rating: 8.6,
-    episodeText: '全12集',
+    episodeText: '全6集',
     sourceName: '推荐',
-    sources: [{ siteName: '线路1', episodes: Array.from({ length: 12 }, (_, i) => ({ name: `第${i + 1}集`, url: `https://example.com/laichi${i + 1}.m3u8` })) }]
+    sources: [{ siteName: '测试线路1', episodes: Array.from({ length: 6 }, (_, i) => ({ name: `第${i + 1}集`, url: PUBLIC_TEST_STREAMS[i % PUBLIC_TEST_STREAMS.length] })) }]
   },
   {
     id: '12',
@@ -160,7 +169,7 @@ const MOCK_MOVIES = [
     rating: 8.7,
     episodeText: 'HD',
     sourceName: '推荐',
-    sources: [{ siteName: '线路1', episodes: [{ name: '正片', url: 'https://example.com/fs2.m3u8' }] }]
+    sources: [{ siteName: '测试线路1', episodes: [{ name: '正片', url: PUBLIC_TEST_STREAMS[0] }] }]
   }
 ];
 
