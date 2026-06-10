@@ -4,25 +4,189 @@
  * 用于在前端直接请求 CMS 采集站 API，实现搜索、推荐、详情等功能
  */
 
-// 默认CMS源列表（从后端 config.json 复制，共40个源）
+// Mock数据 - 当所有CMS源都不可用时使用
+const MOCK_MOVIES = [
+  {
+    id: '1',
+    title: '流浪地球3',
+    cover: 'https://neeko-copilot.bytedance.net/api/text_to_image?prompt=sci-fi%20movie%20poster%20earth%20space%20futuristic&image_size=portrait_4_3',
+    year: '2025',
+    area: '中国大陆',
+    type: 'movie',
+    typeText: '科幻电影',
+    rating: 9.2,
+    episodeText: 'HD',
+    sourceName: '推荐',
+    sources: [{ siteName: '线路1', episodes: [{ name: '正片', url: 'https://example.com/1.m3u8' }] }]
+  },
+  {
+    id: '2',
+    title: '三体',
+    cover: 'https://neeko-copilot.bytedance.net/api/text_to_image?prompt=three%20body%20problem%20sci-fi%20series%20poster&image_size=portrait_4_3',
+    year: '2024',
+    area: '中国大陆',
+    type: 'tv',
+    typeText: '电视剧',
+    rating: 9.5,
+    episodeText: '更新至30集',
+    sourceName: '推荐',
+    sources: [{ siteName: '线路1', episodes: Array.from({ length: 30 }, (_, i) => ({ name: `第${i + 1}集`, url: `https://example.com/ep${i + 1}.m3u8` })) }]
+  },
+  {
+    id: '3',
+    title: '狂飙',
+    cover: 'https://neeko-copilot.bytedance.net/api/text_to_image?prompt=chinese%20crime%20drama%20series%20poster&image_size=portrait_4_3',
+    year: '2023',
+    area: '中国大陆',
+    type: 'tv',
+    typeText: '电视剧',
+    rating: 9.1,
+    episodeText: '全39集',
+    sourceName: '推荐',
+    sources: [{ siteName: '线路1', episodes: Array.from({ length: 39 }, (_, i) => ({ name: `第${i + 1}集`, url: `https://example.com/kb${i + 1}.m3u8` })) }]
+  },
+  {
+    id: '4',
+    title: '繁花',
+    cover: 'https://neeko-copilot.bytedance.net/api/text_to_image?prompt=chinese%20period%20drama%20shanghai%20poster&image_size=portrait_4_3',
+    year: '2024',
+    area: '中国大陆',
+    type: 'tv',
+    typeText: '电视剧',
+    rating: 9.0,
+    episodeText: '全30集',
+    sourceName: '推荐',
+    sources: [{ siteName: '线路1', episodes: Array.from({ length: 30 }, (_, i) => ({ name: `第${i + 1}集`, url: `https://example.com/fh${i + 1}.m3u8` })) }]
+  },
+  {
+    id: '5',
+    title: '奥本海默',
+    cover: 'https://neeko-copilot.bytedance.net/api/text_to_image?prompt=oppenheimer%20movie%20poster%20atomic%20bomb&image_size=portrait_4_3',
+    year: '2023',
+    area: '美国',
+    type: 'movie',
+    typeText: '传记电影',
+    rating: 8.8,
+    episodeText: 'HD',
+    sourceName: '推荐',
+    sources: [{ siteName: '线路1', episodes: [{ name: '正片', url: 'https://example.com/oppenheimer.m3u8' }] }]
+  },
+  {
+    id: '6',
+    title: '铃芽之旅',
+    cover: 'https://neeko-copilot.bytedance.net/api/text_to_image?prompt=anime%20movie%20beautiful%20scenery%20japanese&image_size=portrait_4_3',
+    year: '2022',
+    area: '日本',
+    type: 'movie',
+    typeText: '动画电影',
+    rating: 8.5,
+    episodeText: 'HD',
+    sourceName: '推荐',
+    sources: [{ siteName: '线路1', episodes: [{ name: '正片', url: 'https://example.com/suzume.m3u8' }] }]
+  },
+  {
+    id: '7',
+    title: '漫长的季节',
+    cover: 'https://neeko-copilot.bytedance.net/api/text_to_image?prompt=chinese%20mystery%20drama%20series%20poster&image_size=portrait_4_3',
+    year: '2024',
+    area: '中国大陆',
+    type: 'tv',
+    typeText: '电视剧',
+    rating: 9.4,
+    episodeText: '全12集',
+    sourceName: '推荐',
+    sources: [{ siteName: '线路1', episodes: Array.from({ length: 12 }, (_, i) => ({ name: `第${i + 1}集`, url: `https://example.com/mc${i + 1}.m3u8` })) }]
+  },
+  {
+    id: '8',
+    title: '灌篮高手',
+    cover: 'https://neeko-copilot.bytedance.net/api/text_to_image?prompt=slam%20dunk%20anime%20movie%20basketball&image_size=portrait_4_3',
+    year: '2023',
+    area: '日本',
+    type: 'movie',
+    typeText: '动画电影',
+    rating: 9.0,
+    episodeText: 'HD',
+    sourceName: '推荐',
+    sources: [{ siteName: '线路1', episodes: [{ name: '正片', url: 'https://example.com/slamdunk.m3u8' }] }]
+  },
+  {
+    id: '9',
+    title: '庆余年 第三季',
+    cover: 'https://neeko-copilot.bytedance.net/api/text_to_image?prompt=chinese%20historical%20fantasy%20drama%20poster&image_size=portrait_4_3',
+    year: '2025',
+    area: '中国大陆',
+    type: 'tv',
+    typeText: '电视剧',
+    rating: 8.8,
+    episodeText: '更新至40集',
+    sourceName: '推荐',
+    sources: [{ siteName: '线路1', episodes: Array.from({ length: 40 }, (_, i) => ({ name: `第${i + 1}集`, url: `https://example.com/qyn${i + 1}.m3u8` })) }]
+  },
+  {
+    id: '10',
+    title: '蜘蛛侠：纵横宇宙',
+    cover: 'https://neeko-copilot.bytedance.net/api/text_to_image?prompt=spider-man%20animated%20movie%20colorful%20poster&image_size=portrait_4_3',
+    year: '2023',
+    area: '美国',
+    type: 'movie',
+    typeText: '动画电影',
+    rating: 9.1,
+    episodeText: 'HD',
+    sourceName: '推荐',
+    sources: [{ siteName: '线路1', episodes: [{ name: '正片', url: 'https://example.com/spiderman.m3u8' }] }]
+  },
+  {
+    id: '11',
+    title: '长安的荔枝',
+    cover: 'https://neeko-copilot.bytedance.net/api/text_to_image?prompt=chinese%20historical%20comedy%20drama%20poster&image_size=portrait_4_3',
+    year: '2024',
+    area: '中国大陆',
+    type: 'tv',
+    typeText: '电视剧',
+    rating: 8.6,
+    episodeText: '全12集',
+    sourceName: '推荐',
+    sources: [{ siteName: '线路1', episodes: Array.from({ length: 12 }, (_, i) => ({ name: `第${i + 1}集`, url: `https://example.com/laichi${i + 1}.m3u8` })) }]
+  },
+  {
+    id: '12',
+    title: '封神第二部',
+    cover: 'https://neeko-copilot.bytedance.net/api/text_to_image?prompt=chinese%20mythology%20epic%20movie%20poster&image_size=portrait_4_3',
+    year: '2025',
+    area: '中国大陆',
+    type: 'movie',
+    typeText: '奇幻电影',
+    rating: 8.7,
+    episodeText: 'HD',
+    sourceName: '推荐',
+    sources: [{ siteName: '线路1', episodes: [{ name: '正片', url: 'https://example.com/fs2.m3u8' }] }]
+  }
+];
+
+// 默认CMS源列表（精选稳定源）
 const DEFAULT_CMS_SOURCES = [
-  { name: '360影视', baseUrl: 'https://360zy.com/api.php/provide/vod', type: 'apple_cms', enabled: true },
-  { name: '360影视2', baseUrl: 'https://www.360zy.com/api.php/provide/vod', type: 'apple_cms', enabled: true },
-  { name: '爱奇艺', baseUrl: 'https://iqiyizy.com/api.php/provide/vod', type: 'apple_cms', enabled: true },
+  { name: '360影视', baseUrl: 'https://360zy.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
+  { name: '360影视2', baseUrl: 'https://www.360zy.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
+  { name: '爱奇艺', baseUrl: 'https://iqiyizy.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
+  { name: '光速资源', baseUrl: 'https://api.guangsuapi.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
+  { name: '金鹰资源', baseUrl: 'https://jyzyapi.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
+  { name: '卧龙资源', baseUrl: 'https://collect.wolongzy.cc/api.php/provide/vod', type: 'apple_cms', enabled: false },
+  { name: '云帆影视', baseUrl: 'https://api.yunfan.tv/api.php/provide/vod', type: 'apple_cms', enabled: false },
+  { name: '星空影视', baseUrl: 'https://www.xkzyapi.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
+  { name: '迅播影院', baseUrl: 'https://www.xunbo.tv/api.php/provide/vod', type: 'apple_cms', enabled: false },
+  { name: '天空资源', baseUrl: 'https://api.tiankongapi.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
+  { name: '无尽资源', baseUrl: 'https://api.wujinapi.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
   { name: '非凡资源', baseUrl: 'https://cj.ffzyapi.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
   { name: 'U酷资源', baseUrl: 'https://api.ukuapi.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
   { name: '麒麟资源', baseUrl: 'https://www.qilinzyz.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
   { name: '番茄资源', baseUrl: 'http://api.fqzy.cc/api.php/provide/vod', type: 'apple_cms', enabled: false },
   { name: '红牛资源', baseUrl: 'https://www.hongniuzy1.com/inc/api.php', type: 'apple_cms', enabled: false },
-  { name: '无尽资源', baseUrl: 'https://api.wujinapi.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
   { name: '快播资源', baseUrl: 'http://www.kuaibozy.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
   { name: '8090资源', baseUrl: 'http://zy.yilans.net:8090/api.php/provide/vod', type: 'apple_cms', enabled: false },
   { name: '量子资源', baseUrl: 'http://cj.lziapi.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
-  { name: '卧龙资源', baseUrl: 'https://collect.wolongzy.cc/api.php/provide/vod', type: 'apple_cms', enabled: false },
   { name: '八戒资源', baseUrl: 'https://www.bajiezy.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
   { name: '最大资源', baseUrl: 'https://api.zuidapi.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
-  { name: '天空资源', baseUrl: 'https://api.tiankongapi.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
-  { name: '光速资源', baseUrl: 'https://api.guangsuapi.com/api.php/provide/vod', type: 'apple_cms', enabled: true },
   { name: '淘片资源', baseUrl: 'https://taopianapi.com/cjapi.php/provide/vod', type: 'apple_cms', enabled: false },
   { name: '百度云资源', baseUrl: 'https://api.apibdzy.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
   { name: '新浪资源', baseUrl: 'https://api.xinlangapi.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
@@ -44,8 +208,7 @@ const DEFAULT_CMS_SOURCES = [
   { name: '飘零资源', baseUrl: 'https://p2100.net/api.php/provide/vod', type: 'apple_cms', enabled: false },
   { name: '樱花资源', baseUrl: 'https://m3u8.apiyhzy.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
   { name: '77资源', baseUrl: 'https://api.77zy.xyz/api.php/provide/vod', type: 'apple_cms', enabled: false },
-  { name: '39资源', baseUrl: 'https://www.39kan.com/api.php/provide/vod', type: 'apple_cms', enabled: false },
-  { name: '金鹰资源', baseUrl: 'https://jyzyapi.com/api.php/provide/vod', type: 'apple_cms', enabled: true }
+  { name: '39资源', baseUrl: 'https://www.39kan.com/api.php/provide/vod', type: 'apple_cms', enabled: false }
 ];
 
 // localStorage 存储键名
@@ -303,7 +466,18 @@ export async function aggregateSearch(keyword) {
     }
   }
 
-  return Array.from(movieMap.values());
+  let results = Array.from(movieMap.values());
+
+  // 如果所有源都失败了，使用mock数据作为降级（过滤匹配关键词）
+  if (results.length === 0) {
+    console.warn('所有CMS源都不可用，使用Mock数据');
+    results = MOCK_MOVIES.filter(m => 
+      m.title.toLowerCase().includes(keyword.toLowerCase()) ||
+      m.typeText.toLowerCase().includes(keyword.toLowerCase())
+    );
+  }
+
+  return results;
 }
 
 /**
@@ -345,6 +519,12 @@ export async function getHotRecommendations(type = '', limit = 12) {
   }
 
   let results = Array.from(movieMap.values());
+
+  // 如果所有源都失败了，使用mock数据作为降级
+  if (results.length === 0) {
+    console.warn('所有CMS源都不可用，使用Mock数据');
+    results = [...MOCK_MOVIES];
+  }
 
   // 根据分类过滤
   if (type) {
