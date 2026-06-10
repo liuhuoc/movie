@@ -175,7 +175,16 @@ const MOCK_MOVIES = [
 
 // CORS代理地址（用户可在设置中配置）
 // 格式如: https://corsproxy.io/? 或者 https://api.allorigins.win/raw?url=
+// 开发环境默认使用 vite 中间件代理：/cms-proxy/
 let CORS_PROXY = localStorage.getItem('corsProxy') || '';
+
+// 检查是否为开发环境
+const IS_DEV = typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.DEV;
+
+// 如果是开发环境且用户没有手动配置代理，使用内置代理
+if (IS_DEV && !CORS_PROXY) {
+  CORS_PROXY = '/cms-proxy/';
+}
 
 // 更新CORS代理地址
 export function updateCorsProxy(proxy) {
@@ -184,12 +193,18 @@ export function updateCorsProxy(proxy) {
     localStorage.setItem('corsProxy', proxy);
   } else {
     localStorage.removeItem('corsProxy');
+    // 开发环境重置后使用内置代理
+    if (IS_DEV) CORS_PROXY = '/cms-proxy/';
   }
 }
 
 // 获取带有代理前缀的URL
 function getProxiedUrl(url) {
   if (CORS_PROXY) {
+    // vite 内置代理： /cms-proxy/https://target.com/path
+    if (CORS_PROXY.startsWith('/cms-proxy/')) {
+      return `${CORS_PROXY}${encodeURIComponent(url)}`;
+    }
     // 如果代理地址已包含参数，使用 &url= 追加
     if (CORS_PROXY.includes('?')) {
       return `${CORS_PROXY}url=${encodeURIComponent(url)}`;
@@ -237,6 +252,9 @@ const DEFAULT_CMS_SOURCES = [
 
 // localStorage 存储键名
 const STORAGE_KEY = 'cmsSources';
+// 配置版本号 - 代码更新时增加版本号会强制使用新的默认源列表
+const CMS_SOURCE_VERSION = 2;
+const VERSION_KEY = 'cmsSourcesVersion';
 
 // 通用请求头
 const DEFAULT_HEADERS = {
@@ -337,6 +355,13 @@ function parsePlayUrls(playFrom, playUrl, defaultSourceName = '') {
  */
 export function getCmsSources() {
   try {
+    // 版本号检查：如果版本不匹配，则使用最新的默认源列表
+    const storedVersion = parseInt(localStorage.getItem(VERSION_KEY) || '0', 10);
+    if (storedVersion !== CMS_SOURCE_VERSION) {
+      localStorage.setItem(VERSION_KEY, String(CMS_SOURCE_VERSION));
+      localStorage.removeItem(STORAGE_KEY);
+      return [...DEFAULT_CMS_SOURCES];
+    }
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
       const parsed = JSON.parse(stored);
@@ -357,6 +382,7 @@ export function getCmsSources() {
 export function saveCmsSources(sources) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(sources));
+    localStorage.setItem(VERSION_KEY, String(CMS_SOURCE_VERSION));
   } catch (e) {
     console.error('保存 CMS 源配置失败:', e.message);
   }
@@ -378,13 +404,19 @@ export async function searchAppleCMS(source, keyword) {
       headers['Referer'] = source.baseUrl;
     }
     const res = await fetch(url, {
-      signal: AbortSignal.timeout(6000), // 超时 6 秒
+      signal: AbortSignal.timeout(15000),
       headers
     });
 
     if (!res.ok) return [];
 
-    const data = await res.json();
+    const text = await res.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (_) {
+      return [];
+    }
     if (!data || !data.list) return [];
 
     return data.list.map(item => ({
@@ -432,12 +464,20 @@ export async function getLatestFromCMS(source, limit = 30) {
       headers['Referer'] = source.baseUrl;
     }
     const res = await fetch(url, {
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(15000),
       headers
     });
 
     if (!res.ok) return [];
-    const data = await res.json();
+
+    // 先取文本再解析 JSON，避免直接 res.json() 在响应异常时抛出网络错误被标记为 ERR_ABORTED
+    const text = await res.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (_) {
+      return [];
+    }
     if (!data || !data.list || !Array.isArray(data.list) || data.list.length === 0) return [];
 
     return data.list.map(item => ({
@@ -515,11 +555,11 @@ export async function aggregateSearch(keyword) {
 export async function getHotRecommendations(type = '', limit = 12) {
   const sources = getCmsSources().filter(s => s.enabled);
 
-  // 每个源独立请求，带单独超时，不互相阻塞
+  // 每个源独立请求，带单独超时（比内部超时略长以给网络请求时间）
   const promises = sources.map(source =>
     Promise.race([
       getLatestFromCMS(source, 30),
-      new Promise(resolve => setTimeout(() => resolve([]), 10000)) // 单个源最多等 10 秒
+      new Promise(resolve => setTimeout(() => resolve([]), 9000)) // 单个源最多等 9 秒
     ])
   );
 
@@ -546,17 +586,25 @@ export async function getHotRecommendations(type = '', limit = 12) {
 
   let results = Array.from(movieMap.values());
 
-  // 如果所有源都失败了，使用mock数据作为降级
-  let fromMock = false;
-  if (results.length === 0) {
-    console.warn('所有CMS源都不可用，使用Mock数据');
-    results = [...MOCK_MOVIES];
-    fromMock = true;
+  // 根据分类过滤（先过滤再判断是否需要mock降级）
+  let filteredResults = results;
+  if (type) {
+    filteredResults = results.filter(item => matchType(item.typeText, type));
   }
 
-  // 根据分类过滤
-  if (type) {
-    results = results.filter(item => matchType(item.typeText, type));
+  // 如果过滤后结果为空或一开始就空，使用mock数据作为降级
+  let fromMock = false;
+  if (filteredResults.length === 0) {
+    console.warn('CMS源结果为空或过滤后为空，使用Mock数据');
+    if (type) {
+      filteredResults = MOCK_MOVIES.filter(m => matchType(m.typeText, type));
+    } else {
+      filteredResults = [...MOCK_MOVIES];
+    }
+    fromMock = true;
+    results = filteredResults;
+  } else {
+    results = filteredResults;
   }
 
   // 按更新时间降序排列，最新的在前
