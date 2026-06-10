@@ -428,19 +428,17 @@ export async function getLatestFromCMS(source, limit = 30) {
   try {
     const url = getProxiedUrl(`${source.baseUrl}/?ac=videolist&pg=1&pagesize=${limit}`);
     const headers = { ...DEFAULT_HEADERS };
-    // 如果是直接URL（非代理路径），添加Referer
     if (!source.baseUrl.startsWith('/cms/') && !CORS_PROXY) {
       headers['Referer'] = source.baseUrl;
     }
     const res = await fetch(url, {
-      signal: AbortSignal.timeout(10000), // 超时 10 秒
+      signal: AbortSignal.timeout(8000),
       headers
     });
 
     if (!res.ok) return [];
-
     const data = await res.json();
-    if (!data || !data.list) return [];
+    if (!data || !data.list || !Array.isArray(data.list) || data.list.length === 0) return [];
 
     return data.list.map(item => ({
       id: item.vod_id,
@@ -459,7 +457,7 @@ export async function getLatestFromCMS(source, limit = 30) {
       sources: parsePlayUrls(item.vod_play_from, item.vod_play_url, source.name)
     }));
   } catch (err) {
-    console.error(`[${source.name}] 获取最新影片失败:`, err.message);
+    console.debug(`[${source.name}] 获取最新影片失败:`, err.message);
     return [];
   }
 }

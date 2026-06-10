@@ -279,9 +279,9 @@ function HomePage() {
   const [selectedType, setSelectedType] = useState('')
   const [showProxyTip, setShowProxyTip] = useState(false)
 
-  // 本地缓存key和过期时间(5分钟)
+  // 本地缓存key和过期时间(2分钟)
   const CACHE_KEY = 'hotMovies_cache'
-  const CACHE_EXPIRE = 5 * 60 * 1000
+  const CACHE_EXPIRE = 2 * 60 * 1000
 
   const loadHotMovies = (forceRefresh = false) => {
     const params = new URLSearchParams()
@@ -292,15 +292,17 @@ function HomePage() {
     }
     const cacheKey = `${CACHE_KEY}_${selectedType || 'all'}`
 
-    // 先读本地缓存
+    // 先读本地缓存（缓存中也保存fromMock状态）
     if (!forceRefresh) {
       try {
         const cached = localStorage.getItem(cacheKey)
         if (cached) {
-          const { data, timestamp } = JSON.parse(cached)
+          const { data, timestamp, fromMock } = JSON.parse(cached)
           if (Date.now() - timestamp < CACHE_EXPIRE) {
             setHotMovies(data)
             setLoading(false)
+            // 只有缓存不是mock数据时才显示正常
+            setShowProxyTip(Boolean(fromMock))
             // 后台静默刷新
             fetchHotFromServer(params, cacheKey, false)
             return
@@ -329,18 +331,21 @@ function HomePage() {
               localStorage.removeItem('cmsSources')
             } catch (e) {}
           }
-          // 写入本地缓存
+          // 写入本地缓存（保存fromMock状态）
           try {
             localStorage.setItem(cacheKey, JSON.stringify({
               data: movies,
-              timestamp: Date.now()
+              timestamp: Date.now(),
+              fromMock: data.fromMock
             }))
           } catch (e) {
             // localStorage满或其他错误
           }
-          // 如果使用Mock数据，显示提示
+          // 如果使用Mock数据，显示提示；否则清除提示
           if (data.fromMock) {
             setShowProxyTip(true)
+          } else {
+            setShowProxyTip(false)
           }
         }
       })
@@ -401,23 +406,42 @@ function HomePage() {
           </div>
         </div>
         {/* CORS代理提示 */}
-        {showProxyTip && (
+        {showProxyTip && !loading && (
           <div style={{
-            padding: '12px 16px', marginBottom: '12px', background: 'var(--bg-secondary)',
+            padding: '14px 16px', marginBottom: '12px', background: 'var(--bg-secondary)',
             borderRadius: 'var(--radius)', border: '1px solid var(--border)',
             fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.6
           }}>
-            <div style={{ fontWeight: 600, marginBottom: 4, color: 'var(--brand)' }}>
-              提示：正在使用演示数据
+            <div style={{ fontWeight: 600, marginBottom: 6, color: 'var(--brand)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>提示：正在使用演示数据（CMS源无法连接）</span>
+              <button
+                onClick={() => {
+                  // 清除所有缓存并强制刷新
+                  try {
+                    for (let i = 0; i < localStorage.length; i++) {
+                      const key = localStorage.key(i);
+                      if (key && key.startsWith('hotMovies_cache')) {
+                        localStorage.removeItem(key);
+                      }
+                    }
+                  } catch (e) {}
+                  setShowProxyTip(false);
+                  loadHotMovies(true);
+                }}
+                style={{
+                  padding: '4px 12px', fontSize: '12px', cursor: 'pointer',
+                  borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)',
+                  background: 'var(--bg-primary)', color: 'var(--text-primary)'
+                }}
+              >
+                重新加载
+              </button>
             </div>
-            <div>
-              影视源无法加载可能是跨域问题。请在设置页面配置CORS代理地址，如：
+            <div style={{ lineHeight: 1.8 }}>
+              如果这是你第一次看到此提示，可能是部分影视源连接较慢。
+              点击上方"重新加载"按钮重试，或在设置页面配置CORS代理地址：
               <code style={{ background: 'var(--bg-primary)', padding: '2px 6px', borderRadius: 4, margin: '0 4px' }}>
                 https://corsproxy.io/?
-              </code>
-              <span> 或 </span>
-              <code style={{ background: 'var(--bg-primary)', padding: '2px 6px', borderRadius: 4, margin: '0 4px' }}>
-                https://api.allorigins.win/raw?url=
               </code>
             </div>
           </div>
