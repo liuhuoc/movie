@@ -671,3 +671,49 @@ export async function downloadAndCacheVideo(meta, onProgress) {
     return { success: false, error: e.message };
   }
 }
+
+// ============== 目录浏览器导出 ==============
+// 转发到 fsStore.js（仅在 Capacitor 环境可用）
+
+export async function getStorageDirectories() {
+  if (!isCapacitor()) return []
+  const fs = await getFsStore()
+  if (fs) return fs.getStorageDirectories()
+  return []
+}
+
+export async function browseDirectory(baseDirKey, subPath) {
+  if (!isCapacitor()) return { dirs: [], path: subPath || '', baseDirKey }
+  const fs = await getFsStore()
+  if (fs) return fs.browseDirectory(baseDirKey, subPath)
+  return { dirs: [], path: subPath || '', baseDirKey }
+}
+
+export async function createCacheDirectory(baseDirKey, subPath) {
+  if (!isCapacitor()) return null
+  const fs = await getFsStore()
+  if (fs) return fs.createCacheDirectory(baseDirKey, subPath)
+  return null
+}
+
+export function getCacheStorageInfo() {
+  // 浏览器环境使用 localStorage 的值
+  if (!isCapacitor()) {
+    return {
+      baseDirKey: 'Application',
+      subDir: getCacheDir(),
+      fullPath: getCacheDir()
+    }
+  }
+  // Capacitor 环境延迟获取
+  return {
+    baseDirKey: localStorage.getItem('cacheStorageType') || 'Application',
+    subDir: getCacheDir(),
+    fullPath: getCacheDir()
+  }
+}
+
+export function setCacheStorageInfo(baseDirKey, subDir) {
+  localStorage.setItem('cacheStorageType', baseDirKey)
+  setCacheDir(subDir || 'video_cache')
+}

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { HashRouter, Routes, Route, Link, useNavigate, useParams, useSearchParams, useLocation } from 'react-router-dom'
 import Hls from 'hls.js'
 import { aggregateSearch as localSearch, getHotRecommendations as localHot, getCmsSources, saveCmsSources, DEFAULT_CMS_SOURCES } from './services/cmsEngine'
-import { getHistory, saveHistory, deleteHistory, clearHistory, getFavorites, addFavorite, removeFavorite, isFavorite, getDanmaku, addDanmaku, getPlaySettings, savePlaySettings, getRunMode, setRunMode, getVideoCacheList, getVideoCacheBlob, getVideoCacheTotalSize, deleteVideoCache, clearVideoCache, downloadAndCacheVideo, getCacheDir, setCacheDir, getCacheSizeLimit, setCacheSizeLimit } from './services/localStore'
+import { getHistory, saveHistory, deleteHistory, clearHistory, getFavorites, addFavorite, removeFavorite, isFavorite, getDanmaku, addDanmaku, getPlaySettings, savePlaySettings, getRunMode, setRunMode, getVideoCacheList, getVideoCacheBlob, getVideoCacheTotalSize, deleteVideoCache, clearVideoCache, downloadAndCacheVideo, getCacheDir, setCacheDir, getCacheSizeLimit, setCacheSizeLimit, isCapacitor, getStorageDirectories, browseDirectory, createCacheDirectory, getCacheStorageInfo, setCacheStorageInfo } from './services/localStore'
 
 // ===== API =====
 // 运行模式: 'local' = 前端直连CMS源（无需后端），'server' = 通过后端API
@@ -977,8 +977,34 @@ function PlayerPage() {
         </div>
         {/* 预缓存进度 */}
         {precacheProgress !== null && precacheProgress < 100 && (
-          <div className="precache-indicator">
-            预缓存 {precacheProgress.toFixed(0)}%
+          <div style={{
+            position: 'absolute', bottom: '60px', left: '16px', right: '16px',
+            background: 'rgba(0,0,0,0.75)', borderRadius: 'var(--radius-md)',
+            padding: '10px 14px', zIndex: 10
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+              <span style={{ color: '#fff', fontSize: '12px' }}>正在缓存视频</span>
+              <span style={{ color: 'var(--brand)', fontSize: '13px', fontWeight: 600 }}>{precacheProgress}%</span>
+            </div>
+            <div style={{
+              width: '100%', height: '4px', background: 'rgba(255,255,255,0.2)',
+              borderRadius: '2px', overflow: 'hidden'
+            }}>
+              <div style={{
+                width: `${precacheProgress}%`, height: '100%',
+                background: 'var(--brand)', borderRadius: '2px',
+                transition: 'width 0.3s ease'
+              }} />
+            </div>
+          </div>
+        )}
+        {precacheProgress === 100 && (
+          <div style={{
+            position: 'absolute', bottom: '60px', left: '50%', transform: 'translateX(-50%)',
+            background: 'rgba(0,0,0,0.75)', borderRadius: 'var(--radius-md)',
+            padding: '8px 20px', zIndex: 10, color: 'var(--success)', fontSize: '13px'
+          }}>
+            {Icons.check} 缓存完成
           </div>
         )}
         <div className={`danmaku-input ${danmakuVisible ? 'visible' : ''}`}>
@@ -1583,19 +1609,66 @@ function CacheSettingsBlock() {
   const [sizeLimit, setSizeLimit] = useState(String(getCacheSizeLimit()))
   const [totalSize, setTotalSize] = useState(0)
   const [saving, setSaving] = useState(false)
+  const [availableStorage, setAvailableStorage] = useState([])
+  const [selectedStorage, setSelectedStorage] = useState('Application')
+  const [browsingPath, setBrowsingPath] = useState('')
+  const [subDirs, setSubDirs] = useState([])
+  const [showBrowser, setShowBrowser] = useState(false)
+  const [newDirName, setNewDirName] = useState('')
 
   useEffect(() => {
     if (RUN_MODE === 'local') {
       getVideoCacheTotalSize().then(s => setTotalSize(s))
     }
+    // 加载存储配置和可用目录
+    const info = getCacheStorageInfo()
+    setSelectedStorage(info.baseDirKey || 'Application')
+    getStorageDirectories().then(dirs => setAvailableStorage(dirs))
   }, [])
+
+  const handleBrowse = async (baseDirKey, subPath) => {
+    const result = await browseDirectory(baseDirKey, subPath)
+    setBrowsingPath(subPath || '')
+    setSubDirs(result.dirs || [])
+    setShowBrowser(true)
+  }
+
+  const handleSelectDir = (path) => {
+    setCacheDirState(path)
+    setShowBrowser(false)
+  }
+
+  const handleParentDir = async () => {
+    if (!browsingPath) return
+    const parts = browsingPath.split('/')
+    parts.pop()
+    const parentPath = parts.join('/')
+    await handleBrowse(selectedStorage, parentPath)
+  }
+
+  const handleCreateNewDir = async () => {
+    if (!newDirName.trim()) return
+    const fullPath = browsingPath ? browsingPath + '/' + newDirName.trim() : newDirName.trim()
+    const ok = await createCacheDirectory(selectedStorage, fullPath)
+    if (ok) {
+      setCacheDirState(fullPath)
+      setShowBrowser(false)
+      setNewDirName('')
+    } else {
+      alert('创建目录失败')
+    }
+  }
 
   const saveCacheConfig = () => {
     setSaving(true)
     const sizeMb = parseInt(sizeLimit, 10)
+    // 保存存储类型和子目录
+    setCacheStorageInfo(selectedStorage, cacheDir)
+    setCacheDir(cacheDir || 'video_cache')
+    setCacheSizeLimit(isNaN(sizeMb) || sizeMb <= 0 ? 2048 : sizeMb)
     api.saveCacheSettings({
       dir: cacheDir,
-      sizeLimit: isNaN(sizeMb) || sizeMb <= 0 ? 512 : sizeMb,
+      sizeLimit: isNaN(sizeMb) || sizeMb <= 0 ? 2048 : sizeMb,
     })
       .then(() => setSaving(false))
       .catch(() => setSaving(false))
@@ -1617,41 +1690,175 @@ function CacheSettingsBlock() {
   const itemStyle = { padding: '12px 14px', background: 'var(--bg-secondary)', borderRadius: 'var(--radius)', border: '1px solid var(--border-light)' }
   const inputStyle = { width: '100%', padding: '8px 10px', fontSize: '13px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }
 
-  const envNote = RUN_MODE === 'local'
-    ? '浏览器环境：视频存储在浏览器 IndexedDB 中，容量受浏览器限制（通常为数百 MB~数 GB）'
-    : '服务器模式：视频存储在运行后端服务器的本地磁盘'
+  const storageLabels = {
+    'Application': '应用私有目录',
+    'ExternalStorage': '手机外部存储',
+    'External': 'SD卡/外部存储'
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* 存储位置选择 */}
       <div style={itemStyle}>
-        <div style={{ fontSize: '14px', marginBottom: 8 }}>缓存视频目录</div>
-        <input
-          type="text"
-          placeholder="video_cache"
-          value={cacheDir}
-          onChange={e => setCacheDirState(e.target.value)}
-          style={inputStyle}
-        />
-        <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginTop: 6 }}>{envNote}</div>
+        <div style={{ fontSize: '14px', marginBottom: 8 }}>存储位置</div>
+        {availableStorage.length > 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {availableStorage.map(s => (
+              <label key={s.key} style={{
+                display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
+                borderRadius: 'var(--radius-md)', cursor: 'pointer',
+                background: selectedStorage === s.key ? 'rgba(99, 102, 241, 0.15)' : 'var(--bg-primary)',
+                border: selectedStorage === s.key ? '1px solid var(--brand)' : '1px solid var(--border)',
+                transition: 'all var(--transition)'
+              }}>
+                <input type="radio" name="storageType" checked={selectedStorage === s.key}
+                  onChange={() => setSelectedStorage(s.key)} style={{ accentColor: 'var(--brand)' }} />
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: 500 }}>{s.label}</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-dim)' }}>{s.description}</div>
+                </div>
+              </label>
+            ))}
+          </div>
+        ) : (
+          <div style={{ fontSize: '12px', color: 'var(--text-dim)' }}>
+            {isCapacitor() ? '加载存储目录中...' : '浏览器模式：数据存储在浏览器 IndexedDB 中'}
+          </div>
+        )}
       </div>
 
+      {/* 缓存子目录 */}
+      <div style={itemStyle}>
+        <div style={{ fontSize: '14px', marginBottom: 8 }}>缓存子目录</div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input
+            type="text"
+            placeholder="video_cache"
+            value={cacheDir}
+            onChange={e => setCacheDirState(e.target.value)}
+            style={{ ...inputStyle, flex: 1 }}
+          />
+          <button
+            onClick={() => handleBrowse(selectedStorage, '')}
+            style={{ padding: '8px 14px', fontSize: '13px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', cursor: 'pointer', whiteSpace: 'nowrap' }}
+          >
+            {Icons.folder} 浏览
+          </button>
+        </div>
+        <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: 6 }}>
+          当前路径：{storageLabels[selectedStorage] || selectedStorage}/{cacheDir}
+        </div>
+      </div>
+
+      {/* 目录浏览器弹窗 */}
+      {showBrowser && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000,
+          background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center'
+        }} onClick={() => setShowBrowser(false)}>
+          <div style={{
+            width: '100%', maxWidth: 480, maxHeight: '70vh', background: 'var(--bg-primary)',
+            borderRadius: 'var(--radius-lg) var(--radius-lg) 0 0', padding: '0 0 20px 0',
+            display: 'flex', flexDirection: 'column', overflow: 'hidden'
+          }} onClick={e => e.stopPropagation()}>
+            {/* 头部 */}
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-light)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ fontWeight: 600, fontSize: '15px' }}>选择目录</div>
+                <button onClick={() => setShowBrowser(false)} style={{ background: 'none', border: 'none', fontSize: '18px', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                  ✕
+                </button>
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: 4 }}>
+                当前位置：{storageLabels[selectedStorage] || selectedStorage}/{browsingPath || '根目录'}
+              </div>
+            </div>
+
+            {/* 目录列表 */}
+            <div style={{ flex: 1, overflow: 'auto', padding: '8px 0' }}>
+              {browsingPath && (
+                <button onClick={handleParentDir} style={{
+                  display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '12px 20px',
+                  border: 'none', background: 'none', cursor: 'pointer', color: 'var(--brand)', fontSize: '13px'
+                }}>
+                  {Icons.folder} ../
+                </button>
+              )}
+              {subDirs.length === 0 && !browsingPath ? (
+                <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-dim)', fontSize: '13px' }}>
+                  {availableStorage.length > 0 ? '此目录下暂无子目录' : '目录列表加载中...'}
+                </div>
+              ) : subDirs.length === 0 ? (
+                <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-dim)', fontSize: '13px' }}>
+                  此目录为空
+                </div>
+              ) : (
+                subDirs.map(d => (
+                  <div key={d.path} style={{
+                    display: 'flex', alignItems: 'center', gap: 10, padding: '10px 20px',
+                    borderBottom: '1px solid var(--border-light)'
+                  }}>
+                    <button onClick={() => handleBrowse(selectedStorage, d.path)} style={{
+                      flex: 1, display: 'flex', alignItems: 'center', gap: 10, border: 'none',
+                      background: 'none', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '13px',
+                      textAlign: 'left', padding: '4px 0'
+                    }}>
+                      {Icons.folder} {d.name}
+                    </button>
+                    <button onClick={() => handleSelectDir(d.path)} style={{
+                      padding: '4px 12px', fontSize: '11px', borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--brand)', background: 'var(--brand)', color: '#fff', cursor: 'pointer'
+                    }}>
+                      选择
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* 创建新目录 */}
+            <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border-light)', display: 'flex', gap: 8 }}>
+              <input
+                type="text"
+                placeholder="新建目录名称"
+                value={newDirName}
+                onChange={e => setNewDirName(e.target.value)}
+                style={{ ...inputStyle, flex: 1 }}
+              />
+              <button onClick={handleCreateNewDir}
+                disabled={!newDirName.trim()}
+                style={{
+                  padding: '8px 14px', fontSize: '13px', borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--brand)', background: newDirName.trim() ? 'var(--brand)' : 'var(--bg-secondary)',
+                  color: newDirName.trim() ? '#fff' : 'var(--text-dim)', cursor: newDirName.trim() ? 'pointer' : 'default', whiteSpace: 'nowrap'
+                }}>
+                {Icons.plus} 创建
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 缓存大小设置 */}
       <div style={itemStyle}>
         <div style={{ fontSize: '14px', marginBottom: 8 }}>缓存大小上限 (MB)</div>
         <input
           type="number"
           min="64"
+          max="200000"
           value={sizeLimit}
           onChange={e => setSizeLimit(e.target.value)}
           style={inputStyle}
         />
         <div style={{ fontSize: '12px', color: 'var(--text-dim)', marginTop: 6 }}>
-          超过上限后会自动删除最旧的视频（单个视频超过上限将无法缓存
+          超过上限后会自动删除最旧的视频
         </div>
         <div style={{ fontSize: '13px', color: 'var(--text-dim)', marginTop: 8 }}>
           当前已占用：{formatBytes(totalSize)} / {sizeLimit} MB
         </div>
       </div>
 
+      {/* 操作按钮 */}
       <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
         <button
           className="btn-primary"

@@ -176,14 +176,27 @@ const MOCK_MOVIES = [
 // CORS代理地址（用户可在设置中配置）
 // 格式如: https://corsproxy.io/? 或者 https://api.allorigins.win/raw?url=
 // 开发环境默认使用 vite 中间件代理：/cms-proxy/
-let CORS_PROXY = localStorage.getItem('corsProxy') || '';
+let CORS_PROXY = localStorage.getItem('corsProxy');
 
-// 检查是否为开发环境
+// 判断是否为开发环境
 const IS_DEV = typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.DEV;
 
-// 如果是开发环境且用户没有手动配置代理，使用内置代理
+// 判断是否为 Capacitor 原生环境（APK）
+const IS_CAPACITOR = typeof window !== 'undefined' &&
+  window.Capacitor !== undefined &&
+  window.Capacitor.Plugins !== undefined;
+
+// 如果是开发环境，使用内置代理
 if (IS_DEV && !CORS_PROXY) {
   CORS_PROXY = '/cms-proxy/';
+}
+
+// 如果是 Capacitor/APK 环境，且用户未手动配置代理，使用默认公共 CORS 代理
+// 注意：用户设置为空字符串表示不使用代理，此时不自动设置默认值
+if (IS_CAPACITOR && CORS_PROXY === null) {
+  CORS_PROXY = 'https://corsproxy.io/?';
+  // 保存默认值到 localStorage，让设置页面可以显示
+  localStorage.setItem('corsProxy', CORS_PROXY);
 }
 
 // 更新CORS代理地址
@@ -195,6 +208,9 @@ export function updateCorsProxy(proxy) {
     localStorage.removeItem('corsProxy');
     // 开发环境重置后使用内置代理
     if (IS_DEV) CORS_PROXY = '/cms-proxy/';
+    // Capacitor 环境重置后使用默认代理
+    else if (IS_CAPACITOR) CORS_PROXY = 'https://corsproxy.io/?';
+    else CORS_PROXY = '';
   }
 }
 

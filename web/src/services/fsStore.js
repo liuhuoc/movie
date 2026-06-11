@@ -16,12 +16,19 @@ const VIDEO_DIR = 'video_cache'
 const META_DIR = 'video_meta'
 const META_FILE = 'cache_index.json'
 
+// 获取当前视频存储目录（用户可配置）
+function getVideoStorageDir() {
+  const info = getCacheStorageInfo()
+  return info
+}
+
 // 获取存储基础路径（仅用于显示）
 export async function getStoragePath() {
   try {
+    const info = getVideoStorageDir()
     const result = await Filesystem.getUri({
-      directory: Directory.Application,
-      path: ''
+      directory: info.baseDir,
+      path: info.subDir
     })
     return result.uri
   } catch (e) {
@@ -30,15 +37,14 @@ export async function getStoragePath() {
 }
 
 // 确保目录存在
-async function ensureDir(dir) {
+async function ensureDir(dir, directory) {
   try {
-    const path = `${dir}`
     await Filesystem.mkdir({
-      directory: Directory.Application,
-      path: path,
+      directory: directory || Directory.Application,
+      path: dir,
       recursive: true
     })
-    return path
+    return dir
   } catch (e) {
     // 目录可能已存在
     return dir
@@ -48,12 +54,13 @@ async function ensureDir(dir) {
 // 读取索引文件
 async function readIndex() {
   try {
+    const storageInfo = getVideoStorageDir()
     const content = await Filesystem.readFile({
-      directory: Directory.Application,
+      directory: storageInfo.baseDir,
       path: `${META_DIR}/${META_FILE}`,
       encoding: Encoding.UTF8
     })
-    return JSON.parse(content)
+    return JSON.parse(content.data || content)
   } catch (e) {
     return []
   }
@@ -62,9 +69,10 @@ async function readIndex() {
 // 写入索引文件
 async function writeIndex(index) {
   try {
-    await ensureDir(META_DIR)
+    const storageInfo = getVideoStorageDir()
+    await ensureDir(META_DIR, storageInfo.baseDir)
     await Filesystem.writeFile({
-      directory: Directory.Application,
+      directory: storageInfo.baseDir,
       path: `${META_DIR}/${META_FILE}`,
       data: JSON.stringify(index, null, 2),
       encoding: Encoding.UTF8
@@ -104,8 +112,9 @@ export async function getVideoCacheUrl(id) {
     const item = index.find(i => i.id === id)
     if (!item) return null
 
+    const storageInfo = getVideoStorageDir()
     const fileUri = await Filesystem.getUri({
-      directory: Directory.Application,
+      directory: storageInfo.baseDir,
       path: item.filePath
     })
 
@@ -124,11 +133,12 @@ export async function deleteVideoCache(id) {
     if (itemIndex === -1) return { success: false, error: '视频不存在' }
 
     const item = index[itemIndex]
+    const storageInfo = getVideoStorageDir()
 
     // 删除文件
     try {
       await Filesystem.deleteFile({
-        directory: Directory.Application,
+        directory: storageInfo.baseDir,
         path: item.filePath
       })
     } catch (e) {
@@ -150,12 +160,13 @@ export async function deleteVideoCache(id) {
 export async function clearVideoCache() {
   try {
     const index = await readIndex()
+    const storageInfo = getVideoStorageDir()
 
     // 删除所有文件
     for (const item of index) {
       try {
         await Filesystem.deleteFile({
-          directory: Directory.Application,
+          directory: storageInfo.baseDir,
           path: item.filePath
         })
       } catch (e) {
@@ -189,17 +200,18 @@ export async function saveVideoCache(meta, blob) {
     const id = meta.id || `${meta.title}::${meta.episodeName}::${Date.now()}`
     const ext = getExtensionFromMime(meta.mimeType || 'video/mp4')
     const fileName = `${id}.${ext}`
-    const filePath = `${VIDEO_DIR}/${fileName}`
+    const filePath = `${meta.subDir || getCacheDir()}/${fileName}`
+    const storageInfo = getVideoStorageDir()
 
     // 确保目录存在
-    await ensureDir(VIDEO_DIR)
+    await ensureDir(meta.subDir || getCacheDir(), storageInfo.baseDir)
 
     // 将 Blob 转为 Base64
     const base64 = await blobToBase64(blob)
 
     // 写入文件
     await Filesystem.writeFile({
-      directory: Directory.Application,
+      directory: storageInfo.baseDir,
       path: filePath,
       data: base64,
       encoding: Encoding.UTF8
@@ -229,7 +241,7 @@ export async function saveVideoCache(meta, blob) {
       if (oldPath !== filePath) {
         try {
           await Filesystem.deleteFile({
-            directory: Directory.Application,
+            directory: storageInfo.baseDir,
             path: oldPath
           })
         } catch (e) {}
@@ -273,8 +285,13 @@ export async function downloadAndCacheVideo(meta, onProgress) {
         if (done) break
         chunks.push(value)
         received += value.length
-        if (contentLength && onProgress) {
-          onProgress(Math.min(99, (received / contentLength) * 100))
+        if (contentLength > 0 && onProgress) {
+          // 确保进度是递增的，并且不超过 99%（保存文件后才到 100%）
+          const pct = Math.min(99, Math.round((received / contentLength) * 100))
+          onProgress(pct)
+        } else if (onProgress) {
+          // 不知道总大小，只能模糊更新进度
+          onProgress(Math.min(90, received > 0 ? received / (1024 * 1024) : 0))
         }
       }
     } else {
@@ -285,6 +302,7 @@ export async function downloadAndCacheVideo(meta, onProgress) {
 
     const blob = new Blob(chunks, { type: mimeType })
 
+    if (onProgress) onProgress(95)
     const result = await saveVideoCache({
       ...meta,
       mimeType: mimeType
@@ -371,5 +389,115 @@ export function setCacheSizeLimit(mb) {
     localStorage.setItem('cacheSizeLimit', String(v))
   } catch (e) {
     console.error('设置缓存大小失败', e)
+  }
+}
+
+// ============== 文件目录浏览器 ==============
+// 使用 Capacitor Filesystem 浏览和管理目录
+
+// 获取可用的存储目录列表
+export async function getStorageDirectories() {
+  const dirs = [
+    {
+      key: 'Application',
+      label: '应用私有目录',
+      dir: Directory.Application,
+      description: '仅本应用可访问'
+    }
+  ]
+  try {
+    // 尝试访问外部存储
+    await Filesystem.stat({ path: '', directory: Directory.ExternalStorage })
+    dirs.push({
+      key: 'ExternalStorage',
+      label: '手机外部存储',
+      dir: Directory.ExternalStorage,
+      description: '文件管理器可访问'
+    })
+  } catch (e) {
+    // 外部存储可能不可用（权限不足）
+  }
+  try {
+    await Filesystem.stat({ path: '', directory: Directory.External })
+    dirs.push({
+      key: 'External',
+      label: 'SD 卡 / 外部存储',
+      dir: Directory.External,
+      description: '可移动存储'
+    })
+  } catch (e) {
+    // 不可用
+  }
+  return dirs
+}
+
+// 浏览指定目录下的子目录列表
+// baseDirKey: 'Application' | 'ExternalStorage' | 'External'
+// subPath: 当前路径（空字符串 = 根目录）
+export async function browseDirectory(baseDirKey, subPath = '') {
+  if (!isCapacitor()) return { dirs: [], path: subPath, baseDirKey }
+  try {
+    const baseDir = mapDirKey(baseDirKey)
+    const result = await Filesystem.readdir({
+      path: subPath || '',
+      directory: baseDir
+    })
+    if (result && result.files) {
+      // 只返回目录
+      const dirs = result.files
+        .filter(f => f.type === 'directory')
+        .map(f => ({
+          name: f.name,
+          path: subPath ? subPath + '/' + f.name : f.name
+        }))
+      return { dirs, path: subPath, baseDirKey }
+    }
+    return { dirs: [], path: subPath, baseDirKey }
+  } catch (e) {
+    console.error('浏览目录失败:', e)
+    return { dirs: [], path: subPath, baseDirKey, error: e.message }
+  }
+}
+
+// 创建新目录
+export async function createCacheDirectory(baseDirKey, subPath) {
+  if (!isCapacitor()) return null
+  try {
+    const baseDir = mapDirKey(baseDirKey)
+    await Filesystem.mkdir({
+      path: subPath,
+      directory: baseDir,
+      recursive: true
+    })
+    return true
+  } catch (e) {
+    console.error('创建目录失败:', e)
+    return false
+  }
+}
+
+// 获取缓存的完整存储信息
+export function getCacheStorageInfo() {
+  const baseDirKey = localStorage.getItem('cacheStorageType') || 'Application'
+  const subDir = localStorage.getItem('cacheDir') || 'video_cache'
+  const baseDir = mapDirKey(baseDirKey)
+  return {
+    baseDirKey,
+    baseDir,
+    subDir,
+    fullPath: subDir
+  }
+}
+
+export function setCacheStorageInfo(baseDirKey, subDir) {
+  localStorage.setItem('cacheStorageType', baseDirKey)
+  localStorage.setItem('cacheDir', subDir || 'video_cache')
+}
+
+function mapDirKey(key) {
+  switch (key) {
+    case 'ExternalStorage': return Directory.ExternalStorage
+    case 'External': return Directory.External
+    default: return Directory.Application
   }
 }
