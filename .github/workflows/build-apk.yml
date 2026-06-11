@@ -25,7 +25,7 @@ on:
 
 env:
   NODE_VERSION: '20'
-  JAVA_VERSION: '17'
+  JAVA_VERSION: '21'
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
@@ -58,13 +58,13 @@ jobs:
         run: |
           export ANDROID_HOME=$HOME/android-sdk
           export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
-          if [ ! -d "$ANDROID_HOME/platforms/android-34" ]; then
-            echo "Installing Android platform 34..."
-            sdkmanager --install "platforms;android-34" || true
+          if [ ! -d "$ANDROID_HOME/platforms/android-36" ]; then
+            echo "Installing Android platform 36..."
+            yes | sdkmanager --install "platforms;android-36" || true
           fi
-          if [ ! -d "$ANDROID_HOME/build-tools/34.0.0" ]; then
-            echo "Installing build-tools 34.0.0..."
-            sdkmanager --install "build-tools;34.0.0" || true
+          if [ ! -d "$ANDROID_HOME/build-tools/36.0.0" ]; then
+            echo "Installing build-tools 36.0.0..."
+            yes | sdkmanager --install "build-tools;36.0.0" || true
           fi
           echo "=== SDK components ==="
           sdkmanager --list_installed
@@ -88,13 +88,12 @@ jobs:
         run: npm run build
 
       - name: Sync Capacitor Android
-        continue-on-error: true
         working-directory: ./web
         run: |
           echo "=== Cap version ==="
           npx cap --version
-          echo "=== Updating android ==="
-          npx cap update android
+          echo "=== Syncing android ==="
+          npx cap sync android
           echo "=== Sync completed ==="
 
       - name: Build Debug APK
