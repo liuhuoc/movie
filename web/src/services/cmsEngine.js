@@ -467,6 +467,41 @@ export async function searchAppleCMS(source, keyword) {
 }
 
 /**
+ * 获取单个影片详情（包含播放地址）
+ * @param {Object} source - CMS 源配置
+ * @param {string|number} vodId - 影片 ID
+ * @returns {Promise<Object|null>} 包含完整播放地址的影片详情
+ */
+async function getVodDetail(source, vodId) {
+  try {
+    const url = getProxiedUrl(`${source.baseUrl}/?ac=detail&ids=${vodId}`);
+    const headers = { ...DEFAULT_HEADERS };
+    if (!source.baseUrl.startsWith('/cms/') && !CORS_PROXY) {
+      headers['Referer'] = source.baseUrl;
+    }
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(15000),
+      headers
+    });
+    if (!res.ok) return null;
+    const text = await res.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (_) {
+      return null;
+    }
+    if (!data || !data.list || !Array.isArray(data.list) || data.list.length === 0) {
+      return null;
+    }
+    return data.list[0]; // 返回第一个（唯一的）结果
+  } catch (err) {
+    console.debug(`[${source.name}] 获取详情失败:`, err.message);
+    return null;
+  }
+}
+
+/**
  * 从单个 CMS 源获取最新影片列表
  * @param {Object} source - CMS 源配置 { baseUrl, name }
  * @param {number} limit - 获取数量，默认 30
@@ -496,6 +531,7 @@ export async function getLatestFromCMS(source, limit = 30) {
     }
     if (!data || !data.list || !Array.isArray(data.list) || data.list.length === 0) return [];
 
+    // 先只获取基本列表信息，不逐个请求详情（详情延迟到用户点击时再加载）
     return data.list.map(item => ({
       id: item.vod_id,
       title: item.vod_name,
@@ -534,16 +570,43 @@ export async function aggregateSearch(keyword) {
   // 按 title + year 去重合并
   const movieMap = new Map();
 
+  // 聚合搜索也要获取每个影片详情来确保有完整播放地址
+  const processedResults = [];
   for (const sourceResults of allResults) {
     for (const item of sourceResults) {
       const key = `${item.title}_${item.year}`;
 
-      if (movieMap.has(key)) {
-        // 合并播放源
-        const existing = movieMap.get(key);
-        existing.sources.push(...item.sources);
+      // 如果搜索结果已有播放源，直接使用
+      if (item.sources && item.sources.length > 0) {
+        if (movieMap.has(key)) {
+          const existing = movieMap.get(key);
+          existing.sources.push(...item.sources);
+        } else {
+          movieMap.set(key, item);
+        }
       } else {
-        movieMap.set(key, item);
+        // 没有播放地址，需要单独请求详情
+        const src = { baseUrl: item.sourceUrl, name: item.sourceName };
+        const detail = await getVodDetail(src, item.id);
+        if (detail) {
+          const playFrom = detail.vod_play_from || item.vod_play_from || '';
+          const playUrl = detail.vod_play_url || item.vod_play_url || '';
+          const newItem = {
+            ...item,
+            sources: parsePlayUrls(playFrom, playUrl, item.sourceName)
+          };
+          if (movieMap.has(key)) {
+            const existing = movieMap.get(key);
+            existing.sources.push(...newItem.sources);
+          } else {
+            movieMap.set(key, newItem);
+          }
+        } else {
+          // 详情获取失败，保留原始 item
+          if (!movieMap.has(key)) {
+            movieMap.set(key, item);
+          }
+        }
       }
     }
   }
@@ -644,13 +707,14 @@ export async function getHotRecommendations(type = '', limit = 12) {
  */
 export async function getMovieDetail(sourceUrl, vodId) {
   try {
-    const url = `${sourceUrl}/?ac=detail&ids=${vodId}`;
+    const url = getProxiedUrl(`${sourceUrl}/?ac=detail&ids=${vodId}`);
+    const headers = { ...DEFAULT_HEADERS };
+    if (!CORS_PROXY) {
+      headers['Referer'] = sourceUrl;
+    }
     const res = await fetch(url, {
       signal: AbortSignal.timeout(10000), // 超时 10 秒
-      headers: {
-        ...DEFAULT_HEADERS,
-        'Referer': sourceUrl
-      }
+      headers
     });
 
     if (!res.ok) return null;

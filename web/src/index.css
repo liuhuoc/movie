@@ -56,6 +56,14 @@ ul, ol { list-style: none; }
 /* ===== Layout ===== */
 .app { min-height: 100vh; display: flex; flex-direction: column; }
 
+/* ===== Main scroll container ===== */
+.main-scroll {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
 /* ===== Header ===== */
 .header {
   position: sticky; top: 0; z-index: 100;
@@ -928,7 +936,7 @@ ul, ol { list-style: none; }
   .header-nav { display: none; }
   .mobile-menu-toggle { display: flex; margin-left: auto; }
   .header-search { display: none; }
-  .main { padding: 16px 16px 80px; }
+  .main { padding: 16px 16px; }
   .movie-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 14px; }
   .movie-row .movie-card { flex: 0 0 130px; }
   .hero { padding: 32px 16px 24px; }

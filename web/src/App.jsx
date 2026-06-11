@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { HashRouter, Routes, Route, Link, useNavigate, useParams, useSearchParams, useLocation } from 'react-router-dom'
 import Hls from 'hls.js'
-import { aggregateSearch as localSearch, getHotRecommendations as localHot, getCmsSources, saveCmsSources, DEFAULT_CMS_SOURCES } from './services/cmsEngine'
+import { aggregateSearch as localSearch, getHotRecommendations as localHot, getCmsSources, saveCmsSources, DEFAULT_CMS_SOURCES, getMovieDetail } from './services/cmsEngine'
 import { getHistory, saveHistory, deleteHistory, clearHistory, getFavorites, addFavorite, removeFavorite, isFavorite, getDanmaku, addDanmaku, getPlaySettings, savePlaySettings, getRunMode, setRunMode, getVideoCacheList, getVideoCacheBlob, getVideoCacheTotalSize, deleteVideoCache, clearVideoCache, downloadAndCacheVideo, getCacheDir, setCacheDir, getCacheSizeLimit, setCacheSizeLimit, isCapacitor, getStorageDirectories, browseDirectory, createCacheDirectory, getCacheStorageInfo, setCacheStorageInfo } from './services/localStore'
 
 // ===== API =====
@@ -299,6 +299,7 @@ function HomePage() {
   const navigate = useNavigate()
   const [hotMovies, setHotMovies] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadingMovie, setLoadingMovie] = useState(false)
   const [selectedType, setSelectedType] = useState('')
   const [showProxyTip, setShowProxyTip] = useState(false)
 
@@ -383,21 +384,55 @@ function HomePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedType])
 
-  const playMovie = (movie) => {
+  const playMovie = async (movie) => {
+    // 如果有播放源且有效，直接播放
     const firstSource = movie.sources?.[0]
     const firstEp = firstSource?.episodes?.[0]
-    if (!firstEp) return
-    navigate('/play/aggregate', {
-      state: {
-        title: movie.title,
-        cover: movie.cover,
-        url: firstEp.url,
-        episode: firstEp.name,
-        sources: movie.sources,
-        activeSource: 0,
-        activeEpisode: 0,
-      },
-    })
+    if (firstEp && firstEp.url) {
+      navigate('/play/aggregate', {
+        state: {
+          title: movie.title,
+          cover: movie.cover,
+          url: firstEp.url,
+          episode: firstEp.name,
+          sources: movie.sources,
+          activeSource: 0,
+          activeEpisode: 0,
+        },
+      })
+      return
+    }
+
+    // 没有播放地址，从 CMS 获取详情
+    if (movie.id && movie.sourceUrl) {
+      setLoadingMovie(true)
+      try {
+        const detail = await getMovieDetail(movie.sourceUrl, movie.id)
+        if (detail && detail.sources && detail.sources.length > 0) {
+          const ep = detail.sources[0].episodes?.[0]
+          if (ep && ep.url) {
+            navigate('/play/aggregate', {
+              state: {
+                title: movie.title,
+                cover: movie.cover,
+                url: ep.url,
+                episode: ep.name,
+                sources: detail.sources,
+                activeSource: 0,
+                activeEpisode: 0,
+              },
+            })
+            setLoadingMovie(false)
+            return
+          }
+        }
+      } catch (e) {
+        console.error('获取影片详情失败', e)
+      }
+      setLoadingMovie(false)
+    }
+
+    alert('暂无播放地址，请尝试其他影片')
   }
 
   const typeOptions = ['电影', '电视剧', '综艺', '动漫']
@@ -526,23 +561,54 @@ function SearchPage() {
     if (input.trim()) setSearchParams({ q: input.trim() })
   }
 
-  const playMovie = (movie) => {
+  const playMovie = async (movie) => {
     // 直接跳转到播放器，带上所有播放源信息
     if (movie.sources && movie.sources.length > 0) {
       const firstSource = movie.sources[0]
       const firstEp = firstSource.episodes[0]
-      navigate('/play/aggregate', {
-        state: {
-          title: movie.title,
-          cover: movie.cover,
-          url: firstEp?.url || '',
-          episode: firstEp?.name || '',
-          sources: movie.sources,
-          activeSource: 0,
-          activeEpisode: 0,
-        },
-      })
+      if (firstEp && firstEp.url) {
+        navigate('/play/aggregate', {
+          state: {
+            title: movie.title,
+            cover: movie.cover,
+            url: firstEp.url,
+            episode: firstEp.name || '',
+            sources: movie.sources,
+            activeSource: 0,
+            activeEpisode: 0,
+          },
+        })
+        return
+      }
     }
+
+    // 没有播放地址，从 CMS 获取详情
+    if (movie.id && movie.sourceUrl) {
+      try {
+        const detail = await getMovieDetail(movie.sourceUrl, movie.id)
+        if (detail && detail.sources && detail.sources.length > 0) {
+          const ep = detail.sources[0].episodes?.[0]
+          if (ep && ep.url) {
+            navigate('/play/aggregate', {
+              state: {
+                title: movie.title,
+                cover: movie.cover,
+                url: ep.url,
+                episode: ep.name,
+                sources: detail.sources,
+                activeSource: 0,
+                activeEpisode: 0,
+              },
+            })
+            return
+          }
+        }
+      } catch (e) {
+        console.error('获取影片详情失败', e)
+      }
+    }
+
+    alert('暂无可用播放地址')
   }
 
   const hotTags = ['三体', '狂飙', '流浪地球', '奥本海默', '繁花', '漫长的季节', '铃芽之旅', '灌篮高手']
@@ -2184,10 +2250,52 @@ function SettingsPage() {
 
 // ===== App =====
 function App() {
+  const navigate = useNavigate()
+  const location = useLocation()
+
+  // Android 返回按钮/侧滑手势处理
+  useEffect(() => {
+    if (isCapacitor()) {
+      const handleBackButton = () => {
+        // 如果当前在根路径(首页)，则退出应用
+        if (location.pathname === '/') {
+          // App.exitApp() 来自 @capacitor/app
+          window.Capacitor.Plugins.App?.exitApp?.()
+        } else {
+          // 否则导航回上一页
+          navigate(-1)
+        }
+      }
+
+      try {
+        const App = window.Capacitor.Plugins.App
+        if (App && App.addListener) {
+          App.addListener('backButton', handleBackButton)
+          return () => {
+            App.removeAllListeners?.()
+          }
+        }
+      } catch (e) {
+        console.error('返回按钮监听失败', e)
+      }
+    }
+  }, [location.pathname, navigate])
+
+  // 禁止 WebView 系统的后退行为，由 React Router 管理
+  useEffect(() => {
+    if (isCapacitor()) {
+      const handler = (e) => {
+        e.preventDefault()
+      }
+      window.addEventListener('popstate', handler)
+      return () => window.removeEventListener('popstate', handler)
+    }
+  }, [])
+
   return (
-    <HashRouter>
-      <div className="app">
-        <Header />
+    <div className="app">
+      <Header />
+      <div className="main-scroll">
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/search" element={<SearchPage />} />
@@ -2198,7 +2306,7 @@ function App() {
           <Route path="/play/aggregate" element={<PlayerPage />} />
         </Routes>
       </div>
-    </HashRouter>
+    </div>
   )
 }
 
