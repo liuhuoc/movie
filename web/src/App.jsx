@@ -735,6 +735,7 @@ function PlayerPage() {
   const [adSegments, setAdSegments] = useState([])
   const [adSkipped, setAdSkipped] = useState(false)
   const [caching, setCaching] = useState(false)
+  const [cacheStartToast, setCacheStartToast] = useState(false)
   const [playbackRate, setPlaybackRate] = useState(1)
   const [isFavorited, setIsFavorited] = useState(false)
   const [precacheProgress, setPrecacheProgress] = useState(null)
@@ -972,6 +973,8 @@ function PlayerPage() {
   const cacheCurrentEpisode = () => {
     if (!currentUrl || caching) return
     setCaching(true)
+    setCacheStartToast(true)
+    setTimeout(() => setCacheStartToast(false), 2500)
     const epName = currentEp?.name || episode || '第1集'
     const cacheId = `${title || 'video'}::${epName}`
     api.cacheDownload({
@@ -986,10 +989,10 @@ function PlayerPage() {
     })
       .then(data => {
         setCaching(false)
+        setCacheStartToast(false)
         if (data.success) {
           setPrecacheProgress(100)
           setTimeout(() => setPrecacheProgress(null), 1500)
-          // 刷新已缓存剧集标记
           loadCachedEpisodes()
         } else {
           setPrecacheProgress(null)
@@ -997,6 +1000,7 @@ function PlayerPage() {
       })
       .catch(() => {
         setCaching(false)
+        setCacheStartToast(false)
         setPrecacheProgress(null)
       })
   }
@@ -1015,6 +1019,23 @@ function PlayerPage() {
 
   return (
     <div className="player-page">
+      {/* 开始下载提示 */}
+      {cacheStartToast && (
+        <div style={{
+          position: 'absolute', top: '56px', left: '50%', transform: 'translateX(-50%)',
+          zIndex: 300, padding: '10px 24px', borderRadius: '20px',
+          background: 'rgba(79,110,247,0.92)', color: '#fff',
+          fontSize: '13px', fontWeight: 500,
+          backdropFilter: 'blur(8px)',
+          boxShadow: '0 4px 16px rgba(79,110,247,0.35)',
+          display: 'flex', alignItems: 'center', gap: 8,
+          animation: 'toastSlideDown 0.35s ease',
+          whiteSpace: 'nowrap'
+        }}>
+          <span style={{ width: '16px', height: '16px', borderRadius: '50%', border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#fff', animation: 'spin 0.8s linear infinite' }} />
+          <span>已开始下载 "{episodeName}"</span>
+        </div>
+      )}
       <div className="player-header">
         <button onClick={() => navigate(-1)} style={{ color: '#fff', display: 'flex' }}>
           {Icons.back}
@@ -1033,7 +1054,7 @@ function PlayerPage() {
           <button
             onClick={cacheCurrentEpisode}
             disabled={caching}
-            style={{ color: caching ? 'var(--text-dim)' : '#fff', fontSize: '13px', display: 'flex', alignItems: 'center', gap: 4 }}
+            style={{ color: caching ? 'var(--text-dim)' : '#fff', fontSize: '13px', display: 'flex', alignItems: 'center', gap: 4, minWidth: '72px', justifyContent: 'center' }}
           >
             {Icons.download} {caching ? '缓存中...' : '缓存'}
           </button>
