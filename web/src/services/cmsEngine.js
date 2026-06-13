@@ -18,7 +18,7 @@ const MOCK_MOVIES = [
   {
     id: '1',
     title: '流浪地球3',
-    cover: 'https://neeko-copilot.bytedance.net/api/text_to_image?prompt=sci-fi%20movie%20poster%20earth%20space%20futuristic&image_size=portrait_4_3',
+    cover: '',
     year: '2025',
     area: '中国大陆',
     type: 'movie',
@@ -31,7 +31,7 @@ const MOCK_MOVIES = [
   {
     id: '2',
     title: '三体',
-    cover: 'https://neeko-copilot.bytedance.net/api/text_to_image?prompt=three%20body%20problem%20sci-fi%20series%20poster&image_size=portrait_4_3',
+    cover: '',
     year: '2024',
     area: '中国大陆',
     type: 'tv',
@@ -44,7 +44,7 @@ const MOCK_MOVIES = [
   {
     id: '3',
     title: '狂飙',
-    cover: 'https://neeko-copilot.bytedance.net/api/text_to_image?prompt=chinese%20crime%20drama%20series%20poster&image_size=portrait_4_3',
+    cover: '',
     year: '2023',
     area: '中国大陆',
     type: 'tv',
@@ -57,7 +57,7 @@ const MOCK_MOVIES = [
   {
     id: '4',
     title: '繁花',
-    cover: 'https://neeko-copilot.bytedance.net/api/text_to_image?prompt=chinese%20period%20drama%20shanghai%20poster&image_size=portrait_4_3',
+    cover: '',
     year: '2024',
     area: '中国大陆',
     type: 'tv',
@@ -70,7 +70,7 @@ const MOCK_MOVIES = [
   {
     id: '5',
     title: '奥本海默',
-    cover: 'https://neeko-copilot.bytedance.net/api/text_to_image?prompt=oppenheimer%20movie%20poster%20atomic%20bomb&image_size=portrait_4_3',
+    cover: '',
     year: '2023',
     area: '美国',
     type: 'movie',
@@ -83,7 +83,7 @@ const MOCK_MOVIES = [
   {
     id: '6',
     title: '铃芽之旅',
-    cover: 'https://neeko-copilot.bytedance.net/api/text_to_image?prompt=anime%20movie%20beautiful%20scenery%20japanese&image_size=portrait_4_3',
+    cover: '',
     year: '2022',
     area: '日本',
     type: 'movie',
@@ -96,7 +96,7 @@ const MOCK_MOVIES = [
   {
     id: '7',
     title: '漫长的季节',
-    cover: 'https://neeko-copilot.bytedance.net/api/text_to_image?prompt=chinese%20mystery%20drama%20series%20poster&image_size=portrait_4_3',
+    cover: '',
     year: '2024',
     area: '中国大陆',
     type: 'tv',
@@ -109,7 +109,7 @@ const MOCK_MOVIES = [
   {
     id: '8',
     title: '灌篮高手',
-    cover: 'https://neeko-copilot.bytedance.net/api/text_to_image?prompt=slam%20dunk%20anime%20movie%20basketball&image_size=portrait_4_3',
+    cover: '',
     year: '2023',
     area: '日本',
     type: 'movie',
@@ -122,7 +122,7 @@ const MOCK_MOVIES = [
   {
     id: '9',
     title: '庆余年 第三季',
-    cover: 'https://neeko-copilot.bytedance.net/api/text_to_image?prompt=chinese%20historical%20fantasy%20drama%20poster&image_size=portrait_4_3',
+    cover: '',
     year: '2025',
     area: '中国大陆',
     type: 'tv',
@@ -135,7 +135,7 @@ const MOCK_MOVIES = [
   {
     id: '10',
     title: '蜘蛛侠：纵横宇宙',
-    cover: 'https://neeko-copilot.bytedance.net/api/text_to_image?prompt=spider-man%20animated%20movie%20colorful%20poster&image_size=portrait_4_3',
+    cover: '',
     year: '2023',
     area: '美国',
     type: 'movie',
@@ -148,7 +148,7 @@ const MOCK_MOVIES = [
   {
     id: '11',
     title: '长安的荔枝',
-    cover: 'https://neeko-copilot.bytedance.net/api/text_to_image?prompt=chinese%20historical%20comedy%20drama%20poster&image_size=portrait_4_3',
+    cover: '',
     year: '2024',
     area: '中国大陆',
     type: 'tv',
@@ -161,7 +161,7 @@ const MOCK_MOVIES = [
   {
     id: '12',
     title: '封神第二部',
-    cover: 'https://neeko-copilot.bytedance.net/api/text_to_image?prompt=chinese%20mythology%20epic%20movie%20poster&image_size=portrait_4_3',
+    cover: '',
     year: '2025',
     area: '中国大陆',
     type: 'movie',

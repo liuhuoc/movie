@@ -172,11 +172,18 @@ const Icons = {
   filter: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>,
   settings: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.68 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.32 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>,
   plus: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>,
+  folder: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>,
 }
 
 // ===== Helpers =====
 function makeMovieId(title, episodeName) {
   return `${title}::${episodeName || ''}`
+}
+
+function PosterImg({ src, alt, style }) {
+  const [err, setErr] = useState(false)
+  if (!src || err) return <div className="placeholder" style={{ fontSize: '24px', ...style }}>{Icons.film}</div>
+  return <img src={src} alt={alt} onError={() => setErr(true)} onContextMenu={e => e.preventDefault()} style={style} />
 }
 
 // ===== Header =====
@@ -269,11 +276,14 @@ function Header() {
 
 // ===== Movie Card =====
 function MovieCard({ movie, onClick, sourceTag }) {
+  const [imgError, setImgError] = useState(false)
+  const hasCover = movie.cover && !imgError
+
   return (
     <div className="movie-card" onClick={() => onClick?.(movie)}>
       <div className="movie-card-poster">
-        {movie.cover ? (
-          <img src={movie.cover} alt={movie.title} loading="lazy" />
+        {hasCover ? (
+          <img src={movie.cover} alt={movie.title} loading="lazy" onError={() => setImgError(true)} />
         ) : (
           <div className="placeholder">{Icons.film}</div>
         )}
@@ -349,12 +359,6 @@ function HomePage() {
         if (data.success) {
           const movies = data.data || []
           setHotMovies(movies)
-          // 如果获取到了真实数据，清除CMS源缓存（避免残留失效源配置）
-          if (movies.length > 0) {
-            try {
-              localStorage.removeItem('cmsSources')
-            } catch (e) {}
-          }
           // 写入本地缓存（保存fromMock状态）
           try {
             localStorage.setItem(cacheKey, JSON.stringify({
@@ -533,16 +537,46 @@ function SearchPage() {
   const [loading, setLoading] = useState(false)
   const [searched, setSearched] = useState(false)
   const [sources, setSources] = useState([])
+  const lastSearchedRef = useRef('')
 
   useEffect(() => {
     if (query && query.trim()) {
+      // 如果同一个关键词已经搜过且有结果，跳过重复搜索
+      if (lastSearchedRef.current === query.trim()) return
+
+      // 先尝试从 sessionStorage 读取缓存
+      const cacheKey = `searchCache_${query.trim()}`
+      try {
+        const cached = sessionStorage.getItem(cacheKey)
+        if (cached) {
+          const { data, srcs, ts } = JSON.parse(cached)
+          if (Date.now() - ts < 5 * 60 * 1000) {
+            setResults(data)
+            setSources(srcs || [])
+            setSearched(true)
+            setLoading(false)
+            lastSearchedRef.current = query.trim()
+            return
+          }
+        }
+      } catch (e) {}
+
       setLoading(true)
       setSearched(true)
+      lastSearchedRef.current = query.trim()
       api.search(query.trim())
         .then((data) => {
           if (data.success) {
             setResults(data.data)
             setSources(data.sources || [])
+            // 写入 sessionStorage 缓存
+            try {
+              sessionStorage.setItem(`searchCache_${query.trim()}`, JSON.stringify({
+                data: data.data,
+                srcs: data.sources || [],
+                ts: Date.now()
+              }))
+            } catch (e) {}
           }
         })
         .catch((err) => {
@@ -553,6 +587,7 @@ function SearchPage() {
     } else if (query === '') {
       setSearched(false)
       setResults([])
+      lastSearchedRef.current = ''
     }
   }, [query])
 
@@ -705,6 +740,7 @@ function PlayerPage() {
   const [precacheProgress, setPrecacheProgress] = useState(null)
   const [playError, setPlayError] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [cachedEpNames, setCachedEpNames] = useState(new Set())
 
   const {
     title = '播放',
@@ -719,6 +755,25 @@ function PlayerPage() {
   const currentUrl = currentEp?.url || url
   const episodeName = currentEp?.name || episode || '第1集'
   const movieId = makeMovieId(title, episodeName)
+
+  // 加载已缓存剧集列表
+  const loadCachedEpisodes = () => {
+    api.getCacheList()
+      .then(data => {
+        if (data.success && data.data) {
+          const names = new Set()
+          data.data.forEach(item => {
+            if (item.title === title && item.episodeName) {
+              names.add(item.episodeName)
+            }
+          })
+          setCachedEpNames(names)
+        }
+      })
+      .catch(() => {})
+  }
+
+  useEffect(() => { loadCachedEpisodes() }, [title])
 
   // 检查收藏状态
   useEffect(() => {
@@ -934,6 +989,8 @@ function PlayerPage() {
         if (data.success) {
           setPrecacheProgress(100)
           setTimeout(() => setPrecacheProgress(null), 1500)
+          // 刷新已缓存剧集标记
+          loadCachedEpisodes()
         } else {
           setPrecacheProgress(null)
         }
@@ -1044,21 +1101,26 @@ function PlayerPage() {
         {/* 预缓存进度 */}
         {precacheProgress !== null && precacheProgress < 100 && (
           <div style={{
-            position: 'absolute', bottom: '60px', left: '16px', right: '16px',
-            background: 'rgba(0,0,0,0.75)', borderRadius: 'var(--radius-md)',
-            padding: '10px 14px', zIndex: 10
+            position: 'absolute', bottom: '80px', left: '50%', transform: 'translateX(-50%)',
+            width: '280px', maxWidth: '85vw',
+            background: 'rgba(15,17,23,0.92)', borderRadius: '14px',
+            padding: '16px 20px', zIndex: 10,
+            backdropFilter: 'blur(12px)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.4)'
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-              <span style={{ color: '#fff', fontSize: '12px' }}>正在缓存视频</span>
-              <span style={{ color: 'var(--brand)', fontSize: '13px', fontWeight: 600 }}>{precacheProgress}%</span>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+              <span style={{ color: '#fff', fontSize: '13px', fontWeight: 500 }}>正在缓存视频</span>
+              <span style={{ color: 'var(--brand)', fontSize: '15px', fontWeight: 700 }}>{precacheProgress}%</span>
             </div>
             <div style={{
-              width: '100%', height: '4px', background: 'rgba(255,255,255,0.2)',
-              borderRadius: '2px', overflow: 'hidden'
+              width: '100%', height: '6px', background: 'rgba(255,255,255,0.1)',
+              borderRadius: '3px', overflow: 'hidden'
             }}>
               <div style={{
                 width: `${precacheProgress}%`, height: '100%',
-                background: 'var(--brand)', borderRadius: '2px',
+                background: `linear-gradient(90deg, var(--brand), #7c5cf5)`,
+                borderRadius: '3px',
                 transition: 'width 0.3s ease'
               }} />
             </div>
@@ -1108,6 +1170,7 @@ function PlayerPage() {
           episodes={currentSource.episodes}
           activeEpisode={activeEpisode}
           onSelect={(i) => switchEpisode(activeSource, i)}
+          cachedEpNames={cachedEpNames}
         />
       )}
     </div>
@@ -1196,11 +1259,7 @@ function HistoryPage() {
               return (
                 <div key={item._id || item.movieId} className="cache-item">
                   <div className="cache-item-poster" onClick={() => continuePlay(item)}>
-                    {item.cover ? (
-                      <img src={item.cover} alt={item.title} />
-                    ) : (
-                      <div className="placeholder" style={{ fontSize: '24px' }}>{Icons.film}</div>
-                    )}
+                    <PosterImg src={item.cover} alt={item.title} />
                   </div>
                   <div className="cache-item-info" style={{ flex: 1 }}>
                     <div className="cache-item-title">{item.title}</div>
@@ -1304,12 +1363,8 @@ function FavoritePage() {
             {favoriteList.map((item) => (
               <div key={item._id || item.movieId} className="cache-item">
                 <div className="cache-item-poster" onClick={() => playFavorite(item)}>
-                  {item.cover ? (
-                    <img src={item.cover} alt={item.title} />
-                  ) : (
-                    <div className="placeholder" style={{ fontSize: '24px' }}>{Icons.film}</div>
-                  )}
-                </div>
+                    <PosterImg src={item.cover} alt={item.title} />
+                  </div>
                 <div className="cache-item-info" style={{ flex: 1 }}>
                   <div className="cache-item-title">{item.title}</div>
                   <div className="cache-item-meta">
@@ -1471,11 +1526,7 @@ function CachePage() {
               return (
                 <div key={keyId} className="cache-item">
                   <div className="cache-item-poster" onClick={() => item.status === 'ready' && playCache(item)}>
-                    {(item.poster || item.cover) ? (
-                      <img src={item.poster || item.cover} alt={item.title} />
-                    ) : (
-                      <div className="placeholder" style={{ fontSize: '24px' }}>{Icons.film}</div>
-                    )}
+                    <PosterImg src={item.poster || item.cover} alt={item.title} />
                     <div className="cache-item-status" style={{ background: status.color }}>
                       {status.text}
                     </div>
@@ -1506,11 +1557,15 @@ function CachePage() {
 }
 
 // ===== Episode Bar (支持拖拽滚动) =====
-function EpisodeBar({ episodes, activeEpisode, onSelect }) {
+function EpisodeBar({ episodes, activeEpisode, onSelect, cachedEpNames }) {
   const barRef = useRef(null)
   const [isDragging, setIsDragging] = useState(false)
   const [startX, setStartX] = useState(0)
   const [scrollLeft, setScrollLeft] = useState(0)
+
+  const isCached = (epName) => {
+    return cachedEpNames && cachedEpNames.has(epName)
+  }
 
   const handleMouseDown = (e) => {
     setIsDragging(true)
@@ -1539,25 +1594,114 @@ function EpisodeBar({ episodes, activeEpisode, onSelect }) {
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseLeave}
     >
-      {episodes.map((ep, i) => (
+      {episodes.map((ep, i) => {
+        const cached = isCached(ep.name)
+        return (
         <button
           key={i}
           className={`player-ep-btn ${i === activeEpisode ? 'active' : ''}`}
           onClick={() => onSelect(i)}
+          style={cached ? { opacity: 0.45, background: 'rgba(52,199,123,0.12)', borderColor: 'rgba(52,199,123,0.25)' } : {}}
+          title={cached ? '已缓存' : ''}
         >
-          {ep.name}
+          {cached ? '✓ ' : ''}{ep.name}
         </button>
-      ))}
+        )
+      })}
     </div>
   )
 }
 
 // ===== CMS Source Manager (二级菜单) =====
 function CmsSourceManager({ sources, onToggle, onDelete, onAdd, newSource, setNewSource }) {
-  const [activeTab, setActiveTab] = useState('enabled') // 'enabled' | 'disabled' | 'add'
+  const [activeTab, setActiveTab] = useState('enabled')
+  const [checking, setChecking] = useState(false)
+  const [checkResults, setCheckResults] = useState(null)
+  const [checkingProgress, setCheckingProgress] = useState(0)
 
   const enabledSources = sources.filter(s => s.enabled)
   const disabledSources = sources.filter(s => !s.enabled)
+
+  const runBatchCheck = async () => {
+    const allSources = [...enabledSources, ...disabledSources]
+    if (allSources.length === 0) return
+
+    setChecking(true)
+    setCheckResults(null)
+    setCheckingProgress(0)
+
+    const results = {}
+    let checked = 0
+    const total = allSources.length
+
+    // 使用 cmsEngine 的代理 URL 逻辑来测试
+    const CORS_PROXY = localStorage.getItem('corsProxy')
+    const IS_DEV = typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.DEV
+    let proxy = CORS_PROXY
+    if (IS_DEV && !proxy) proxy = '/cms-proxy/'
+
+    const testSource = async (source) => {
+      try {
+        let testUrl = `${source.baseUrl}/?ac=videolist&pg=1&pagesize=1`
+        if (proxy) {
+          if (proxy.startsWith('/cms-proxy/')) {
+            testUrl = `${proxy}${encodeURIComponent(testUrl)}`
+          } else if (proxy.includes('?')) {
+            testUrl = `${proxy}url=${encodeURIComponent(testUrl)}`
+          } else {
+            testUrl = `${proxy}?url=${encodeURIComponent(testUrl)}`
+          }
+        }
+        const controller = new AbortController()
+        const timer = setTimeout(() => controller.abort(), 8000)
+        const res = await fetch(testUrl, {
+          signal: controller.signal,
+          headers: { 'User-Agent': 'Mozilla/5.0' }
+        })
+        clearTimeout(timer)
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const text = await res.text()
+        let data
+        try { data = JSON.parse(text) } catch (e) { throw new Error('Invalid JSON') }
+        return { ok: !!(data && data.list) }
+      } catch (e) {
+        return { ok: false, error: e.message }
+      }
+    }
+
+    const batch = async () => {
+      // 并发测试，每批5个
+      const batchSize = 5
+      for (let i = 0; i < total; i += batchSize) {
+        const batchSources = allSources.slice(i, i + batchSize)
+        const batchResults = await Promise.all(
+          batchSources.map(async (s) => {
+            const r = await testSource(s)
+            checked++
+            setCheckingProgress(Math.round((checked / total) * 100))
+            return { name: s.name, ...r }
+          })
+        )
+        batchResults.forEach(r => { results[r.name] = r })
+      }
+      setCheckResults(results)
+    }
+
+    await batch()
+    // 自动禁用失败的源
+    const failedNames = new Set(
+      Object.entries(results).filter(([_, r]) => !r.ok).map(([name]) => name)
+    )
+    if (failedNames.size > 0) {
+      for (const name of failedNames) {
+        const s = sources.find(s => s.name === name)
+        if (s && s.enabled) {
+          onToggle(name)
+        }
+      }
+    }
+    setChecking(false)
+  }
 
   const tabStyle = (tab) => ({
     padding: '8px 16px',
@@ -1568,25 +1712,74 @@ function CmsSourceManager({ sources, onToggle, onDelete, onAdd, newSource, setNe
     cursor: 'pointer',
     background: activeTab === tab ? 'var(--brand)' : 'transparent',
     color: activeTab === tab ? '#fff' : 'var(--text-muted)',
-    transition: 'all var(--transition)'
+    transition: 'all var(--transition)',
+    whiteSpace: 'nowrap'
   })
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
         <h3 style={{ fontSize: '16px', fontWeight: 600 }}>CMS源管理</h3>
-        <div style={{ display: 'flex', gap: 4, background: 'var(--bg-secondary)', padding: 4, borderRadius: 'var(--radius-md)', border: '1px solid var(--border-light)' }}>
-          <button style={tabStyle('enabled')} onClick={() => setActiveTab('enabled')}>
-            已启用 ({enabledSources.length})
-          </button>
-          <button style={tabStyle('disabled')} onClick={() => setActiveTab('disabled')}>
-            已停用 ({disabledSources.length})
-          </button>
-          <button style={tabStyle('add')} onClick={() => setActiveTab('add')}>
-            {Icons.plus} 添加
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 4, background: 'var(--bg-secondary)', padding: 4, borderRadius: 'var(--radius-md)', border: '1px solid var(--border-light)' }}>
+            <button style={tabStyle('enabled')} onClick={() => setActiveTab('enabled')}>
+              已启用 ({enabledSources.length})
+            </button>
+            <button style={tabStyle('disabled')} onClick={() => setActiveTab('disabled')}>
+              已停用 ({disabledSources.length})
+            </button>
+            <button style={tabStyle('add')} onClick={() => setActiveTab('add')}>
+              {Icons.plus} 添加
+            </button>
+          </div>
+          <button
+            onClick={runBatchCheck}
+            disabled={checking}
+            style={{
+              padding: '8px 14px', fontSize: '13px', fontWeight: 600,
+              borderRadius: 'var(--radius-md)', border: '1px solid var(--brand)',
+              background: checking ? 'var(--bg-secondary)' : 'var(--brand)',
+              color: checking ? 'var(--text-muted)' : '#fff',
+              cursor: checking ? 'default' : 'pointer',
+              whiteSpace: 'nowrap', transition: 'all var(--transition)'
+            }}
+          >
+            {checking ? `检测中 ${checkingProgress}%` : '一键检测'}
           </button>
         </div>
       </div>
+
+      {/* 检测结果面板 */}
+      {checkResults && (
+        <div style={{
+          marginBottom: 12, padding: '12px 16px', background: 'var(--bg-secondary)',
+          borderRadius: 'var(--radius)', border: '1px solid var(--border-light)'
+        }}>
+          <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: 8 }}>
+            检测结果：
+            <span style={{ color: 'var(--success)', marginLeft: 8 }}>
+              {Object.values(checkResults).filter(r => r.ok).length} 个可用
+            </span>
+            <span style={{ color: 'var(--danger)', marginLeft: 8 }}>
+              {Object.values(checkResults).filter(r => !r.ok).length} 个失败（已自动禁用）
+            </span>
+          </div>
+          <div style={{ maxHeight: 160, overflowY: 'auto', fontSize: '12px' }}>
+            {Object.entries(checkResults).map(([name, r]) => (
+              <div key={name} style={{
+                padding: '3px 0', display: 'flex', alignItems: 'center', gap: 8,
+                color: r.ok ? 'var(--success)' : 'var(--danger)'
+              }}>
+                <span>{r.ok ? '✅' : '❌'}</span>
+                <span style={{ fontWeight: 500 }}>{name}</span>
+                {!r.ok && r.error && (
+                  <span style={{ color: 'var(--text-dim)', fontSize: '11px' }}>({r.error})</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {activeTab === 'enabled' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

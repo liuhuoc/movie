@@ -438,12 +438,20 @@ export async function browseDirectory(baseDirKey, subPath = '') {
   if (!isCapacitor()) return { dirs: [], path: subPath, baseDirKey }
   try {
     const baseDir = mapDirKey(baseDirKey)
+    // 先检查目录是否存在
+    try {
+      await Filesystem.stat({
+        path: subPath || '.',
+        directory: baseDir
+      })
+    } catch (e) {
+      return { dirs: [], path: subPath, baseDirKey, error: '目录不存在' }
+    }
     const result = await Filesystem.readdir({
       path: subPath || '',
       directory: baseDir
     })
     if (result && result.files) {
-      // 只返回目录
       const dirs = result.files
         .filter(f => f.type === 'directory')
         .map(f => ({
@@ -454,7 +462,7 @@ export async function browseDirectory(baseDirKey, subPath = '') {
     }
     return { dirs: [], path: subPath, baseDirKey }
   } catch (e) {
-    console.error('浏览目录失败:', e)
+    console.debug('浏览目录失败:', e.message)
     return { dirs: [], path: subPath, baseDirKey, error: e.message }
   }
 }
